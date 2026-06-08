@@ -115,8 +115,29 @@ export type AppSettingsPatch = Partial<
   >
 >;
 
+const STORAGE_KEY = "doc2meeting_auth";
+
+function getAuthHeaders(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const { accessToken } = JSON.parse(raw);
+      if (accessToken) return { Authorization: `Bearer ${accessToken}` };
+    }
+  } catch {
+    // ignore
+  }
+  return {};
+}
+
 async function jsonOrThrow<T>(r: Response): Promise<T> {
   if (!r.ok) {
+    // On 401, clear auth and redirect to login
+    if (r.status === 401) {
+      localStorage.removeItem(STORAGE_KEY);
+      window.location.href = "/login";
+      throw new Error("Session expired");
+    }
     const detail = await r.text();
     throw new Error(`${r.status} ${r.statusText}: ${detail}`);
   }
@@ -128,21 +149,28 @@ async function sendJson<T>(
   url: string,
   body?: Record<string, unknown>
 ): Promise<T> {
+  const headers: Record<string, string> = { ...getAuthHeaders() };
+  if (body) headers["Content-Type"] = "application/json";
   return jsonOrThrow(
     await fetch(url, {
       method,
-      headers: body ? { "Content-Type": "application/json" } : undefined,
+      headers,
       body: body ? JSON.stringify(body) : undefined,
     })
   );
 }
 
+async function authFetch(url: string, init?: RequestInit): Promise<Response> {
+  const headers = { ...getAuthHeaders(), ...(init?.headers as Record<string, string> || {}) };
+  return fetch(url, { ...init, headers });
+}
+
 export const api = {
   getTree: async (): Promise<TreeResponse> =>
-    jsonOrThrow(await fetch("/api/tree")),
+    jsonOrThrow(await authFetch("/api/tree")),
 
   getFile: async (relPath: string): Promise<string> => {
-    const r = await fetch(`/api/files/${encodeURI(relPath)}`);
+    const r = await authFetch(`/api/files/${encodeURI(relPath)}`);
     if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
     return r.text();
   },
@@ -153,13 +181,13 @@ export const api = {
     sendJson("POST", "/api/files/convert", { rel_path: relPath }),
 
   listDocuments: async (): Promise<DocumentSummary[]> =>
-    jsonOrThrow(await fetch("/api/documents")),
+    jsonOrThrow(await authFetch("/api/documents")),
 
   openDocument: async (relPath: string): Promise<DocumentDetail> =>
     sendJson("POST", "/api/documents/open", { rel_path: relPath }),
 
   getDocument: async (id: number): Promise<DocumentDetail> =>
-    jsonOrThrow(await fetch(`/api/documents/${id}`)),
+    jsonOrThrow(await authFetch(`/api/documents/${id}`)),
 
   setContextPaths: async (
     docId: number,
@@ -216,7 +244,7 @@ export const api = {
       audio.type.includes("mp4") ? "mp4" :
       audio.type.includes("ogg") ? "ogg" : "bin";
     form.append("audio", audio, `note.${ext}`);
-    const r = await fetch("/api/transcribe", { method: "POST", body: form });
+    const r = await authFetch("/api/transcribe", { method: "POST", body: form });
     if (!r.ok) {
       const detail = await r.text();
       throw new Error(`${r.status} ${r.statusText}: ${detail}`);
@@ -246,7 +274,7 @@ export const api = {
       audio.type.includes("mp4") ? "mp4" :
       audio.type.includes("ogg") ? "ogg" : "bin";
     form.append("audio", audio, `comment.${ext}`);
-    const r = await fetch(
+    const r = await authFetch(
       `/api/documents/${docId}/sections/${sectionIdx}/paragraphs/${paragraphIdx}/voice_comment`,
       { method: "POST", body: form }
     );
@@ -294,7 +322,7 @@ export const api = {
     }),
 
   getSettings: async (): Promise<AppSettings> =>
-    jsonOrThrow(await fetch("/api/settings")),
+    jsonOrThrow(await authFetch("/api/settings")),
 
   updateSettings: async (patch: AppSettingsPatch): Promise<AppSettings> =>
     sendJson("PATCH", "/api/settings", patch),
