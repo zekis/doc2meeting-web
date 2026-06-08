@@ -45,6 +45,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from . import fs
 from .auth import router as auth_router
+from .billing import router as billing_router, check_usage_limits, record_usage
 from .health import router as health_router
 from .db import engine, get_session, init_db
 from .middleware import get_current_user, limiter, tier_limit
@@ -110,6 +111,9 @@ app.include_router(health_router)
 
 # Auth router (unprotected — login/register/refresh/logout)
 app.include_router(auth_router)
+
+# Billing router (checkout + billing info protected; webhooks unprotected)
+app.include_router(billing_router)
 
 
 # ---------- Auth helpers for route protection ----------
@@ -204,14 +208,22 @@ def open_document(body: OpenBody, current_user: User = Depends(get_current_user)
         raise HTTPException(404, "File not found")
     hash_now = fs.content_hash(text)
 
+    # Estimate page count from sections for tier enforcement
+    sections = parse_markdown(text)
+    page_count = max(1, len(sections))
+
     with Session(engine) as session:
+        # Tier enforcement: check doc and page limits before processing
+        check_usage_limits(current_user, session, page_count=page_count)
+
         doc = session.exec(
             select(Document).where(
                 Document.rel_path == rel,
                 Document.user_id == current_user.id,
             )
         ).first()
-        if doc is None:
+        is_new = doc is None
+        if is_new:
             doc = Document(rel_path=rel, content_hash=hash_now, user_id=current_user.id)
             session.add(doc)
         else:
@@ -220,6 +232,11 @@ def open_document(body: OpenBody, current_user: User = Depends(get_current_user)
             session.add(doc)
         session.commit()
         session.refresh(doc)
+
+        # Record usage for new document processing
+        if is_new:
+            record_usage(session, current_user, document_id=doc.id, page_count=page_count)
+
         return _serialize_document(session, doc, text)
 
 
