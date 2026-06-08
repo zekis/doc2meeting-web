@@ -23,6 +23,9 @@ from __future__ import annotations
 from dotenv import load_dotenv
 load_dotenv()
 
+from .logging_config import setup_logging
+setup_logging()
+
 import io
 import os
 from datetime import datetime
@@ -42,6 +45,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from . import fs
 from .auth import router as auth_router
+from .health import router as health_router
 from .db import engine, get_session, init_db
 from .middleware import get_current_user, limiter, tier_limit
 from .models import AppSettings, Document, Review, ReviewStatus, User
@@ -100,6 +104,9 @@ app.add_middleware(
 # Rate limiter
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Health check router (unprotected)
+app.include_router(health_router)
 
 # Auth router (unprotected — login/register/refresh/logout)
 app.include_router(auth_router)
