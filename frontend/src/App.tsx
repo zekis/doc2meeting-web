@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import Icon from "@mdi/react";
-import { mdiArrowLeft, mdiCog, mdiFileDocumentOutline, mdiPaperclip } from "@mdi/js";
+import { mdiArrowLeft, mdiCog, mdiFileDocumentOutline, mdiLogout, mdiPaperclip } from "@mdi/js";
 import {
   api,
   DocumentDetail,
@@ -8,11 +8,13 @@ import {
   FileTreeNode,
   TreeResponse,
 } from "./api";
+import { useAuth } from "./auth/AuthContext";
 import { FileTree } from "./components/FileTree";
 import { DocReview } from "./components/DocReview";
 import { SettingsModal } from "./components/SettingsModal";
 
 export function App() {
+  const { user, logout } = useAuth();
   const [tree, setTree] = useState<TreeResponse | null>(null);
   const [recents, setRecents] = useState<DocumentSummary[]>([]);
   const [openDoc, setOpenDoc] = useState<DocumentDetail | null>(null);
@@ -123,13 +125,23 @@ export function App() {
             </span>
           )
         )}
-        <button
-          className="icon-btn topbar-settings-btn"
-          onClick={() => setSettingsOpen(true)}
-          title="Voice and tone settings"
-        >
-          <Icon path={mdiCog} size={0.9} />
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginLeft: "auto" }}>
+          {user && <span className="topbar-user-name">{user.name}</span>}
+          <button
+            className="icon-btn topbar-settings-btn"
+            onClick={() => setSettingsOpen(true)}
+            title="Voice and tone settings"
+          >
+            <Icon path={mdiCog} size={0.9} />
+          </button>
+          <button
+            className="icon-btn"
+            onClick={logout}
+            title="Sign out"
+          >
+            <Icon path={mdiLogout} size={0.9} />
+          </button>
+        </div>
       </header>
 
       {error && <div className="error-banner">{error}</div>}

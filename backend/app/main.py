@@ -31,15 +31,20 @@ from typing import Any
 
 from openai import OpenAI
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from sqlmodel import Session, select
+from starlette.middleware.sessions import SessionMiddleware
 
 from . import fs
-from .db import engine, init_db
-from .models import AppSettings, Document, Review, ReviewStatus
+from .auth import router as auth_router
+from .db import engine, get_session, init_db
+from .middleware import get_current_user, limiter, tier_limit
+from .models import AppSettings, Document, Review, ReviewStatus, User
 from .pipeline import (
     SectionHistoryEntry,
     cost_usd,
@@ -80,21 +85,40 @@ REJECT_RESPONSE_TEXT = "Acknowledged. Moving on as written."
 
 app = FastAPI(title="doc2meeting-web")
 
+# SessionMiddleware required by authlib for OAuth state parameter
+_session_secret = os.environ.get("SESSION_SECRET_KEY", "dev-session-secret-change-me")
+app.add_middleware(SessionMiddleware, secret_key=_session_secret)
+
 app.add_middleware(
     CORSMiddleware,
-    # Dev / Tailscale: accept any origin. We don't use cookies, so
-    # `allow_credentials=False` keeps us compatible with the wildcard.
     allow_origins=["*"],
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# Rate limiter
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Auth router (unprotected — login/register/refresh/logout)
+app.include_router(auth_router)
+
+
+# ---------- Auth helpers for route protection ----------
+
+def _get_user_doc(session: Session, doc_id: int, current_user: User) -> Document:
+    """Load a document and verify ownership. Returns 404 if not found or not owned."""
+    doc = session.get(Document, doc_id)
+    if doc is None or (doc.user_id is not None and doc.user_id != current_user.id):
+        raise HTTPException(404, "Document not found")
+    return doc
+
 
 # ---------- Filesystem tree ----------
 
 @app.get("/api/tree")
-def get_tree() -> dict:
+def get_tree(current_user: User = Depends(get_current_user)) -> dict:
     return {
         "root": fs.root_dir().name,
         "root_abs": str(fs.root_dir()),
@@ -103,7 +127,7 @@ def get_tree() -> dict:
 
 
 @app.get("/api/files/{rel_path:path}", response_class=PlainTextResponse)
-def get_file(rel_path: str) -> str:
+def get_file(rel_path: str, current_user: User = Depends(get_current_user)) -> str:
     try:
         return fs.read_text(rel_path)
     except ValueError as e:
@@ -117,7 +141,7 @@ class ConvertBody(BaseModel):
 
 
 @app.post("/api/files/convert")
-def convert_file(body: ConvertBody) -> dict:
+def convert_file(body: ConvertBody, current_user: User = Depends(get_current_user)) -> dict:
     """Convert a .docx into a sibling `.md` file using markitdown.
 
     Saved as `<stem>.md` next to the source. Refuses to overwrite an existing
@@ -163,7 +187,7 @@ class OpenBody(BaseModel):
 
 
 @app.post("/api/documents/open")
-def open_document(body: OpenBody) -> dict:
+def open_document(body: OpenBody, current_user: User = Depends(get_current_user)) -> dict:
     rel = body.rel_path.replace("\\", "/").lstrip("/")
     try:
         text = fs.read_text(rel)
@@ -174,9 +198,14 @@ def open_document(body: OpenBody) -> dict:
     hash_now = fs.content_hash(text)
 
     with Session(engine) as session:
-        doc = session.exec(select(Document).where(Document.rel_path == rel)).first()
+        doc = session.exec(
+            select(Document).where(
+                Document.rel_path == rel,
+                Document.user_id == current_user.id,
+            )
+        ).first()
         if doc is None:
-            doc = Document(rel_path=rel, content_hash=hash_now)
+            doc = Document(rel_path=rel, content_hash=hash_now, user_id=current_user.id)
             session.add(doc)
         else:
             doc.content_hash = hash_now
@@ -188,10 +217,13 @@ def open_document(body: OpenBody) -> dict:
 
 
 @app.get("/api/documents")
-def list_documents() -> list[dict]:
+@limiter.limit(tier_limit)
+def list_documents(request: Request, current_user: User = Depends(get_current_user)) -> list[dict]:
     with Session(engine) as session:
         docs = session.exec(
-            select(Document).order_by(Document.last_opened_at.desc())
+            select(Document)
+            .where(Document.user_id == current_user.id)
+            .order_by(Document.last_opened_at.desc())
         ).all()
         out: list[dict] = []
         for d in docs:
@@ -208,11 +240,9 @@ def list_documents() -> list[dict]:
 
 
 @app.get("/api/documents/{doc_id}")
-def get_document(doc_id: int) -> dict:
+def get_document(doc_id: int, current_user: User = Depends(get_current_user)) -> dict:
     with Session(engine) as session:
-        doc = session.get(Document, doc_id)
-        if doc is None:
-            raise HTTPException(404, "Document not found")
+        doc = _get_user_doc(session, doc_id, current_user)
         try:
             text = fs.read_text(doc.rel_path)
         except FileNotFoundError:
@@ -230,11 +260,9 @@ class ContextBody(BaseModel):
 
 
 @app.patch("/api/documents/{doc_id}")
-def patch_document(doc_id: int, body: ContextBody) -> dict:
+def patch_document(doc_id: int, body: ContextBody, current_user: User = Depends(get_current_user)) -> dict:
     with Session(engine) as session:
-        doc = session.get(Document, doc_id)
-        if doc is None:
-            raise HTTPException(404, "Document not found")
+        doc = _get_user_doc(session, doc_id, current_user)
         # Filter to known-good rel paths; silently drop anything invalid.
         safe: list[str] = []
         for p in body.context_paths:
@@ -258,7 +286,7 @@ def patch_document(doc_id: int, body: ContextBody) -> dict:
 # ---------- Save as next version ----------
 
 @app.post("/api/documents/{doc_id}/save_markup")
-def save_markup(doc_id: int) -> dict:
+def save_markup(doc_id: int, current_user: User = Depends(get_current_user)) -> dict:
     """Write a `<name>_markup_v<N>.md` review-notes file next to the source.
 
     Includes every paragraph that has a review (any status). For each:
@@ -268,9 +296,7 @@ def save_markup(doc_id: int) -> dict:
     Designed to be read by another human or AI agent to apply the changes
     independently of this app."""
     with Session(engine) as session:
-        doc = session.get(Document, doc_id)
-        if doc is None:
-            raise HTTPException(404, "Document not found")
+        doc = _get_user_doc(session, doc_id, current_user)
         try:
             original = fs.read_text(doc.rel_path)
         except FileNotFoundError:
@@ -383,11 +409,9 @@ def _blockquote(text: str) -> list[str]:
 
 
 @app.post("/api/documents/{doc_id}/save_version")
-def save_version(doc_id: int) -> dict:
+def save_version(doc_id: int, current_user: User = Depends(get_current_user)) -> dict:
     with Session(engine) as session:
-        doc = session.get(Document, doc_id)
-        if doc is None:
-            raise HTTPException(404, "Document not found")
+        doc = _get_user_doc(session, doc_id, current_user)
         try:
             original = fs.read_text(doc.rel_path)
         except FileNotFoundError:
@@ -438,18 +462,19 @@ def save_version(doc_id: int) -> dict:
 @app.post(
     "/api/documents/{doc_id}/sections/{section_idx}/paragraphs/{paragraph_idx}/review"
 )
+@limiter.limit(tier_limit)
 def generate_paragraph_review(
+    request: Request,
     doc_id: int,
     section_idx: int,
     paragraph_idx: int,
     persona: str = "skeptical",
     auto_accept: bool = False,
     with_response: bool = False,
+    current_user: User = Depends(get_current_user),
 ) -> dict:
     with Session(engine) as session:
-        doc = session.get(Document, doc_id)
-        if doc is None:
-            raise HTTPException(404, "Document not found")
+        doc = _get_user_doc(session, doc_id, current_user)
         try:
             text = fs.read_text(doc.rel_path)
         except FileNotFoundError:
@@ -662,16 +687,20 @@ class ResolveBody(BaseModel):
 
 
 @app.post("/api/reviews/{review_id}/accept")
-def accept_review(review_id: int, body: ResolveBody | None = None) -> dict:
+@limiter.limit(tier_limit)
+def accept_review(request: Request, review_id: int, body: ResolveBody | None = None, current_user: User = Depends(get_current_user)) -> dict:
     return _resolve_review(review_id, ReviewStatus.accepted,
-                           (body.user_comment if body else None))
+                           (body.user_comment if body else None),
+                           current_user=current_user)
 
 
 @app.post("/api/reviews/{review_id}/reject")
-def reject_review(review_id: int, body: ResolveBody | None = None) -> dict:
+@limiter.limit(tier_limit)
+def reject_review(request: Request, review_id: int, body: ResolveBody | None = None, current_user: User = Depends(get_current_user)) -> dict:
     return _resolve_review(review_id, ReviewStatus.rejected,
                            (body.user_comment if body else None),
-                           REJECT_RESPONSE_TEXT)
+                           REJECT_RESPONSE_TEXT,
+                           current_user=current_user)
 
 
 def _load_paragraph(
@@ -698,6 +727,7 @@ def _resolve_review(
     status: ReviewStatus,
     user_comment: str | None,
     response_text: str | None = None,
+    current_user: User | None = None,
 ) -> dict:
     """Resolve a review (accept/reject).
 
@@ -713,11 +743,13 @@ def _resolve_review(
         review = session.get(Review, review_id)
         if review is None:
             raise HTTPException(404, "Review not found")
+        # Verify ownership through document
+        doc = session.get(Document, review.document_id)
+        if current_user and doc and doc.user_id is not None and doc.user_id != current_user.id:
+            raise HTTPException(404, "Review not found")
         review.status = status
         review.user_comment = (user_comment or None)
         review.resolved_at = datetime.utcnow()
-
-        doc = session.get(Document, review.document_id)
         loaded = (
             _load_paragraph(doc, review.section_idx, review.paragraph_idx)
             if doc is not None
@@ -851,6 +883,7 @@ def stage_reviewer(
     section_idx: int,
     paragraph_idx: int,
     persona: str = "skeptical",
+    current_user: User = Depends(get_current_user),
 ) -> dict:
     """Stage 2: ensure a Review row with reviewer comment + reviewer TTS.
 
@@ -859,9 +892,7 @@ def stage_reviewer(
     comment. Also makes sure the paragraph's narrator audio exists (so the
     Review row carries the URL the player can use directly)."""
     with Session(engine) as session:
-        doc = session.get(Document, doc_id)
-        if doc is None:
-            raise HTTPException(404, "Document not found")
+        doc = _get_user_doc(session, doc_id, current_user)
         sec, paragraphs, sections = _load_section_state(doc, section_idx)
         if not (0 <= paragraph_idx < len(paragraphs)):
             raise HTTPException(404, "Paragraph index out of range")
@@ -945,15 +976,13 @@ def stage_reviewer(
 @app.post(
     "/api/documents/{doc_id}/sections/{section_idx}/paragraphs/{paragraph_idx}/response"
 )
-def stage_response(doc_id: int, section_idx: int, paragraph_idx: int) -> dict:
+def stage_response(doc_id: int, section_idx: int, paragraph_idx: int, current_user: User = Depends(get_current_user)) -> dict:
     """Stage 3: ensure narrator response text + audio on an existing review.
 
     Idempotent — returns immediately if the response is already present.
     Requires the reviewer stage to have run first (so we know the review)."""
     with Session(engine) as session:
-        doc = session.get(Document, doc_id)
-        if doc is None:
-            raise HTTPException(404, "Document not found")
+        doc = _get_user_doc(session, doc_id, current_user)
         review = _latest_review_for(session, doc_id, section_idx, paragraph_idx)
         if review is None:
             raise HTTPException(409, "Reviewer stage must run before response stage")
@@ -985,12 +1014,14 @@ def stage_response(doc_id: int, section_idx: int, paragraph_idx: int) -> dict:
     "/api/documents/{doc_id}/sections/{section_idx}/paragraphs/{paragraph_idx}/clear"
 )
 def clear_paragraph_reviews(
-    doc_id: int, section_idx: int, paragraph_idx: int
+    doc_id: int, section_idx: int, paragraph_idx: int,
+    current_user: User = Depends(get_current_user),
 ) -> dict:
     """Delete every review row for one paragraph. The on-disk audio files
     aren't touched — they're content-addressed and will be re-used on the
     next regeneration if the paragraph text is unchanged."""
     with Session(engine) as session:
+        _get_user_doc(session, doc_id, current_user)
         reviews = session.exec(
             select(Review)
             .where(Review.document_id == doc_id)
@@ -1010,7 +1041,8 @@ _WHISPER_MODEL = os.environ.get("OPENAI_WHISPER_MODEL", "whisper-1")
 
 
 @app.post("/api/transcribe")
-async def transcribe(audio: UploadFile = File(...)) -> dict:
+@limiter.limit(tier_limit)
+async def transcribe(request: Request, audio: UploadFile = File(...), current_user: User = Depends(get_current_user)) -> dict:
     """Plain audio → text via Whisper. Returns just `{ text }` — doesn't save
     anywhere. Used by the per-paragraph mic-note button so the user can
     transcribe, then edit, then choose what to do with the text."""
@@ -1038,6 +1070,7 @@ async def voice_comment(
     section_idx: int,
     paragraph_idx: int,
     audio: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
 ) -> dict:
     """Transcribe a short voice clip via Whisper and append it to the
     paragraph's user_comment. Creates a stub review row if none exists yet —
@@ -1045,9 +1078,7 @@ async def voice_comment(
 
     Returns the transcript + the updated review."""
     with Session(engine) as session:
-        doc = session.get(Document, doc_id)
-        if doc is None:
-            raise HTTPException(404, "Document not found")
+        doc = _get_user_doc(session, doc_id, current_user)
 
         # Validate paragraph index against the current parse.
         sec, paragraphs, _sections = _load_section_state(doc, section_idx)
@@ -1105,13 +1136,11 @@ async def voice_comment(
 @app.post(
     "/api/documents/{doc_id}/sections/{section_idx}/paragraphs/{paragraph_idx}/narrator"
 )
-def get_paragraph_narrator(doc_id: int, section_idx: int, paragraph_idx: int) -> dict:
+def get_paragraph_narrator(doc_id: int, section_idx: int, paragraph_idx: int, current_user: User = Depends(get_current_user)) -> dict:
     """Ensure narrator audio exists for one paragraph and return its URL.
     Idempotent — re-uses the cached file when the paragraph text is unchanged."""
     with Session(engine) as session:
-        doc = session.get(Document, doc_id)
-        if doc is None:
-            raise HTTPException(404, "Document not found")
+        doc = _get_user_doc(session, doc_id, current_user)
         try:
             text = fs.read_text(doc.rel_path)
         except FileNotFoundError:
@@ -1161,7 +1190,7 @@ def _serialize_settings(s: AppSettings) -> dict:
 
 
 @app.get("/api/settings")
-def get_settings() -> dict:
+def get_settings(current_user: User = Depends(get_current_user)) -> dict:
     return _serialize_settings(get_current_settings())
 
 
@@ -1176,7 +1205,7 @@ class SettingsPatch(BaseModel):
 
 
 @app.patch("/api/settings")
-def patch_settings(body: SettingsPatch) -> dict:
+def patch_settings(body: SettingsPatch, current_user: User = Depends(get_current_user)) -> dict:
     patch = body.model_dump(exclude_unset=True)
     # Validate enumerated fields up-front so we fail loudly rather than write a
     # bad voice/model that would then break the next TTS call.
