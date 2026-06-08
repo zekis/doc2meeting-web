@@ -9,6 +9,7 @@ Routes mounted at /api/auth:
 
 from __future__ import annotations
 
+import json
 import os
 import urllib.parse
 import uuid
@@ -41,6 +42,7 @@ ACCESS_TTL = timedelta(minutes=30)
 REFRESH_TTL = timedelta(days=7)
 
 OAUTH_REDIRECT_URI = os.environ.get("OAUTH_REDIRECT_URI", "")
+FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "http://localhost:5173")
 
 # ---------------------------------------------------------------------------
 # Authlib client
@@ -90,8 +92,8 @@ def create_refresh_token(user_id: str, jti: str) -> str:
 def decode_token(token: str) -> dict:
     try:
         return jwt.decode(token, JWT_SECRET_KEY, algorithms=[ALGORITHM])
-    except JWTError as e:
-        raise HTTPException(401, detail=f"invalid token: {e}")
+    except JWTError:
+        raise HTTPException(401, detail="invalid token")
 
 
 def _mint_tokens(user_id: str, session: Session) -> tuple[str, str]:
@@ -148,11 +150,10 @@ async def google_callback(request: Request, session: Session = Depends(get_sessi
     # Redirect to frontend callback page with tokens in URL fragment
     # (fragment is never sent to the server — safer than query params)
     user_json = urllib.parse.quote(
-        f'{{"id":"{user.id}","email":"{user.email}","name":"{user.name}","tier":"{user.tier}"}}'
+        json.dumps({"id": str(user.id), "email": user.email, "name": user.name, "tier": user.tier})
     )
-    frontend_url = OAUTH_REDIRECT_URI.rsplit("/", 1)[0]  # strip /auth/callback
     redirect_url = (
-        f"{frontend_url}/auth/callback"
+        f"{FRONTEND_BASE_URL}/auth/callback"
         f"#access={access}&refresh={refresh}&user={user_json}"
     )
     return RedirectResponse(url=redirect_url)

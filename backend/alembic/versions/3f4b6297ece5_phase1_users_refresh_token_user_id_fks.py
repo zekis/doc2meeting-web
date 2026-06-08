@@ -55,7 +55,7 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column(
-            "revoked", sa.Boolean, nullable=False, server_default=sa.text("0")
+            "revoked", sa.Boolean, nullable=False, server_default=sa.false()
         ),
         sa.Column("expires_at", sa.DateTime, nullable=False),
     )

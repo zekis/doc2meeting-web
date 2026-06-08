@@ -31,7 +31,7 @@ from typing import Any
 
 from openai import OpenAI
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
@@ -43,7 +43,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from . import fs
 from .auth import router as auth_router
 from .db import engine, get_session, init_db
-from .middleware import get_current_user, limiter
+from .middleware import get_current_user, limiter, tier_limit
 from .models import AppSettings, Document, Review, ReviewStatus, User
 from .pipeline import (
     SectionHistoryEntry,
@@ -217,7 +217,8 @@ def open_document(body: OpenBody, current_user: User = Depends(get_current_user)
 
 
 @app.get("/api/documents")
-def list_documents(current_user: User = Depends(get_current_user)) -> list[dict]:
+@limiter.limit(tier_limit)
+def list_documents(request: Request, current_user: User = Depends(get_current_user)) -> list[dict]:
     with Session(engine) as session:
         docs = session.exec(
             select(Document)
@@ -461,7 +462,9 @@ def save_version(doc_id: int, current_user: User = Depends(get_current_user)) ->
 @app.post(
     "/api/documents/{doc_id}/sections/{section_idx}/paragraphs/{paragraph_idx}/review"
 )
+@limiter.limit(tier_limit)
 def generate_paragraph_review(
+    request: Request,
     doc_id: int,
     section_idx: int,
     paragraph_idx: int,
@@ -684,14 +687,16 @@ class ResolveBody(BaseModel):
 
 
 @app.post("/api/reviews/{review_id}/accept")
-def accept_review(review_id: int, body: ResolveBody | None = None, current_user: User = Depends(get_current_user)) -> dict:
+@limiter.limit(tier_limit)
+def accept_review(request: Request, review_id: int, body: ResolveBody | None = None, current_user: User = Depends(get_current_user)) -> dict:
     return _resolve_review(review_id, ReviewStatus.accepted,
                            (body.user_comment if body else None),
                            current_user=current_user)
 
 
 @app.post("/api/reviews/{review_id}/reject")
-def reject_review(review_id: int, body: ResolveBody | None = None, current_user: User = Depends(get_current_user)) -> dict:
+@limiter.limit(tier_limit)
+def reject_review(request: Request, review_id: int, body: ResolveBody | None = None, current_user: User = Depends(get_current_user)) -> dict:
     return _resolve_review(review_id, ReviewStatus.rejected,
                            (body.user_comment if body else None),
                            REJECT_RESPONSE_TEXT,
@@ -1036,7 +1041,8 @@ _WHISPER_MODEL = os.environ.get("OPENAI_WHISPER_MODEL", "whisper-1")
 
 
 @app.post("/api/transcribe")
-async def transcribe(audio: UploadFile = File(...), current_user: User = Depends(get_current_user)) -> dict:
+@limiter.limit(tier_limit)
+async def transcribe(request: Request, audio: UploadFile = File(...), current_user: User = Depends(get_current_user)) -> dict:
     """Plain audio → text via Whisper. Returns just `{ text }` — doesn't save
     anywhere. Used by the per-paragraph mic-note button so the user can
     transcribe, then edit, then choose what to do with the text."""

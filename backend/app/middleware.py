@@ -71,15 +71,23 @@ TIER_LIMITS = {
 def _key_func(request: Request) -> str:
     user = getattr(request.state, "current_user", None)
     if user:
-        return f"user:{user.id}"
+        return f"user:{user.tier}:{user.id}"
     return get_remote_address(request)
 
 
 limiter = Limiter(key_func=_key_func)
 
 
-def tier_limit(request: Request) -> str:
-    """Dynamic rate limit string based on authenticated user's tier."""
-    user = getattr(request.state, "current_user", None)
-    tier = user.tier if user else "free"
-    return TIER_LIMITS.get(tier, TIER_LIMITS["free"])
+def tier_limit(key: str = "") -> str:
+    """Dynamic rate limit based on the authenticated user's tier.
+
+    slowapi calls this with the result of ``_key_func`` (which encodes
+    the tier) when the callable has a ``key`` parameter.
+    """
+    if key.startswith("user:"):
+        # key format: "user:<tier>:<uuid>"
+        parts = key.split(":", 2)
+        if len(parts) >= 2:
+            tier = parts[1]
+            return TIER_LIMITS.get(tier, TIER_LIMITS["free"])
+    return TIER_LIMITS["free"]

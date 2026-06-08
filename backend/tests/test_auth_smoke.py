@@ -129,19 +129,30 @@ class TestDocumentIsolation:
 
 class TestRateLimit:
     def test_rate_limiter_is_configured(self, client):
-        """Verify the rate limiter middleware is wired up.
-
-        Note: slowapi doesn't enforce limits through TestClient (no real
-        IP/socket). This test confirms the limiter object exists on the app.
-        A live server test is required to verify actual 429 responses (see
-        manual smoke test plan).
-        """
+        """Verify the rate limiter middleware is wired up."""
         from app.main import app
         assert hasattr(app.state, "limiter")
         from app.middleware import TIER_LIMITS
         assert TIER_LIMITS["free"] == "10/minute"
         assert TIER_LIMITS["pro"] == "60/minute"
         assert TIER_LIMITS["api"] == "120/minute"
+
+    def test_rate_limit_enforces_429(self, client, session):
+        """Free-tier user should get 429 after exceeding 10 requests/minute."""
+        from app.middleware import limiter
+        # Reset limiter storage so prior tests don't interfere
+        limiter.reset()
+
+        user = _make_user(session, email="ratelimit@test.com", tier="free")
+        headers = _auth_for(user)
+
+        # Free tier = 10/minute. Fire 11 requests to a rate-limited route.
+        statuses = []
+        for _ in range(11):
+            r = client.get("/api/documents", headers=headers)
+            statuses.append(r.status_code)
+
+        assert 429 in statuses, f"Expected a 429 in {statuses}"
 
 
 # ---- 5. JWT refresh rotation ----
