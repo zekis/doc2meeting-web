@@ -1,23 +1,49 @@
-"""SQLModel definitions for the filesystem-backed review webapp.
+"""SQLModel definitions for the doc2meeting review webapp.
 
-Filesystem is the source of truth for document content. SQLite stores only:
-- One Document row per markdown file ever opened (keyed by rel_path).
-- Review rows tied to (document_id, section_idx, paragraph_idx).
-
-Sections themselves are computed on demand by parsing the file body — they
-have no DB row. That keeps the review keys stable when a file is re-parsed
-without structural change, and avoids stale FK rows after edits.
+Tables:
+- User: authenticated user accounts (Google OAuth)
+- RefreshToken: JWT refresh token revocation tracking
+- Document: markdown files opened for review (user-scoped)
+- Review: per-paragraph reviewer feedback
+- AppSettings: singleton app configuration
 """
 
 from __future__ import annotations
 
 import json
+import uuid
 from datetime import datetime
 from enum import Enum
 from typing import Optional
 
 from sqlmodel import Field, SQLModel
 
+
+# ---------- Auth models ----------
+
+class User(SQLModel, table=True):
+    id: str = Field(
+        default_factory=lambda: str(uuid.uuid4()),
+        primary_key=True,
+        max_length=36,
+    )
+    email: str = Field(unique=True, index=True, max_length=320)
+    name: str = Field(max_length=200)
+    tier: str = Field(default="free", index=True)  # free|pro|api|team
+    google_sub: str = Field(unique=True, index=True, max_length=64)
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
+class RefreshToken(SQLModel, table=True):
+    __tablename__ = "refresh_token"
+
+    jti: str = Field(primary_key=True, max_length=36)  # uuid4
+    user_id: str = Field(foreign_key="user.id", index=True, max_length=36)
+    revoked: bool = Field(default=False, index=True)
+    expires_at: datetime
+
+
+# ---------- Content models ----------
 
 class ReviewStatus(str, Enum):
     pending = "pending"
@@ -27,13 +53,15 @@ class ReviewStatus(str, Enum):
 
 class Document(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    rel_path: str = Field(index=True, unique=True)
-    # Hash of the markdown body at last open. Used to detect external edits.
+    rel_path: str = Field(index=True)
     content_hash: str = ""
-    # JSON list of rel_paths the reviewer should treat as context.
     context_paths_json: str = "[]"
     created_at: datetime = Field(default_factory=datetime.utcnow)
     last_opened_at: datetime = Field(default_factory=datetime.utcnow)
+    # Owner — nullable for backwards compat with pre-auth data
+    user_id: Optional[str] = Field(
+        default=None, foreign_key="user.id", index=True, max_length=36,
+    )
 
     @property
     def context_paths(self) -> list[str]:
@@ -57,21 +85,13 @@ class Review(SQLModel, table=True):
     comment: str
     user_comment: Optional[str] = None
 
-    # Stored verbatim text the agent (Week 2) proposes to replace the paragraph with.
     proposed_replacement: Optional[str] = None
-
-    # Conversational narrator reply produced by the responder agent when the
-    # user enables auto-accept mode. When unset, the boilerplate "Noted. We'll
-    # factor that in." is used as the response audio.
     narrator_response_text: Optional[str] = None
 
     narrator_audio_path: Optional[str] = None
     reviewer_audio_path: Optional[str] = None
     response_audio_path: Optional[str] = None
 
-    # Per-review token / character usage. Accumulated across every agent and
-    # TTS call that touched this row. Cost is computed on the fly from the
-    # configured price-per-million.
     llm_input_tokens: int = 0
     llm_output_tokens: int = 0
     tts_chars: int = 0
@@ -82,9 +102,7 @@ class Review(SQLModel, table=True):
 
 
 class AppSettings(SQLModel, table=True):
-    """Singleton settings row (id is always 1). Holds per-deployment TTS
-    voice / steering choices and the default reviewer persona. Models stay on
-    env vars because they shouldn't change at runtime."""
+    """Singleton settings row (id is always 1)."""
 
     id: Optional[int] = Field(default=1, primary_key=True)
     narrator_voice: str = "cedar"
