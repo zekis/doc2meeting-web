@@ -30,6 +30,8 @@ class User(SQLModel, table=True):
     email: str = Field(unique=True, index=True, max_length=320)
     name: str = Field(max_length=200)
     tier: str = Field(default="free", index=True)  # free|pro|api|team
+    stripe_customer_id: Optional[str] = Field(default=None, index=True, max_length=64)
+    is_admin: bool = Field(default=False)
     google_sub: str = Field(unique=True, index=True, max_length=64)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
@@ -100,6 +102,41 @@ class Review(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     resolved_at: Optional[datetime] = None
 
+
+# ---------- Billing / Subscription models ----------
+
+class Subscription(SQLModel, table=True):
+    """Stripe subscription linked to a user."""
+    id: str = Field(
+        default_factory=lambda: str(uuid.uuid4()),
+        primary_key=True,
+        max_length=36,
+    )
+    user_id: str = Field(foreign_key="user.id", index=True, max_length=36)
+    stripe_customer_id: str = Field(index=True, max_length=64)
+    stripe_subscription_id: str = Field(unique=True, index=True, max_length=64)
+    stripe_price_id: str = Field(max_length=64)
+    tier: str = Field(max_length=20)  # pro|api
+    status: str = Field(default="active", index=True, max_length=20)  # active|canceled|past_due|unpaid
+    current_period_start: datetime
+    current_period_end: datetime
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    canceled_at: Optional[datetime] = None
+
+
+class UsageRecord(SQLModel, table=True):
+    """Per-document usage tracking for billing period enforcement."""
+    __tablename__ = "usage_record"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: str = Field(foreign_key="user.id", index=True, max_length=36)
+    document_id: Optional[int] = Field(default=None, foreign_key="document.id")
+    page_count: int = Field(default=0)
+    action: str = Field(default="doc_process", max_length=30)  # doc_process|api_call
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+
+# ---------- App settings ----------
 
 class AppSettings(SQLModel, table=True):
     """Singleton settings row (id is always 1)."""
