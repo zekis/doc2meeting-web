@@ -45,6 +45,29 @@
   box-sizing: border-box;
 }
 
+/* Dark-themed thin scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--bg-elev) transparent;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--bg-elev);
+  border-radius: 3px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--border);
+}
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 html, body, #root {
   margin: 0;
   height: 100%;

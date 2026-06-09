@@ -115,16 +115,17 @@ export function PlayerPage({ onBack }: PlayerPageProps) {
     [sttSupported, recordingTarget, startListening]
   );
 
-  const handleStopRecording = useCallback(() => {
+  const handleStopRecording = useCallback(async () => {
     if (!doc || !recordingTarget) return;
-    const text = stopListening();
+    const target = recordingTarget;
+    setRecordingTarget(null);
+    const text = await stopListening();
     if (text.trim()) {
       api
-        .createComment(doc.id, recordingTarget.sectionIdx, recordingTarget.paragraphIdx, text.trim())
+        .createComment(doc.id, target.sectionIdx, target.paragraphIdx, text.trim())
         .then((c) => setComments((prev) => [...prev, c]))
         .catch(() => {});
     }
-    setRecordingTarget(null);
   }, [doc, recordingTarget, stopListening]);
 
   const handleDeleteComment = useCallback(

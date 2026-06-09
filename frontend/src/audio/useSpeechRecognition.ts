@@ -37,7 +37,8 @@ export interface UseSpeechRecognitionReturn {
   transcript: string;
   interimTranscript: string;
   startListening: () => void;
-  stopListening: () => string;
+  /** Stop recording and return a promise that resolves with the final text. */
+  stopListening: () => Promise<string>;
   supported: boolean;
 }
 
@@ -47,6 +48,8 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
   const [interimTranscript, setInterimTranscript] = useState("");
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null);
   const finalTranscriptRef = useRef("");
+  const interimRef = useRef("");
+  const endResolveRef = useRef<((text: string) => void) | null>(null);
 
   const Ctor = getSpeechRecognition();
   const supported = Ctor !== null;
@@ -64,6 +67,7 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
     recognition.lang = "en-AU";
     recognitionRef.current = recognition;
     finalTranscriptRef.current = "";
+    interimRef.current = "";
     setTranscript("");
     setInterimTranscript("");
 
@@ -79,30 +83,63 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
         }
       }
       finalTranscriptRef.current = final;
+      interimRef.current = interim;
       setTranscript(final);
       setInterimTranscript(interim);
     };
 
     recognition.onend = () => {
       setIsListening(false);
+      // Resolve the stop promise with best available text
+      if (endResolveRef.current) {
+        const text = (finalTranscriptRef.current + " " + interimRef.current).trim();
+        endResolveRef.current(text);
+        endResolveRef.current = null;
+      }
     };
 
-    recognition.onerror = () => {
+    recognition.onerror = (event) => {
+      console.warn("SpeechRecognition error:", event.error);
       setIsListening(false);
+      if (endResolveRef.current) {
+        const text = (finalTranscriptRef.current + " " + interimRef.current).trim();
+        endResolveRef.current(text);
+        endResolveRef.current = null;
+      }
     };
 
     recognition.start();
     setIsListening(true);
   }, [Ctor]);
 
-  const stopListening = useCallback((): string => {
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
+  const stopListening = useCallback((): Promise<string> => {
+    return new Promise<string>((resolve) => {
+      const rec = recognitionRef.current;
+      if (!rec) {
+        resolve((finalTranscriptRef.current + " " + interimRef.current).trim());
+        return;
+      }
+      // Store the resolve callback for onend to call
+      endResolveRef.current = resolve;
       recognitionRef.current = null;
-    }
-    setIsListening(false);
-    const result = finalTranscriptRef.current.trim();
-    return result;
+      setIsListening(false);
+      try {
+        rec.stop(); // triggers onresult (final) then onend
+      } catch {
+        // If stop fails, resolve immediately
+        const text = (finalTranscriptRef.current + " " + interimRef.current).trim();
+        endResolveRef.current = null;
+        resolve(text);
+      }
+      // Safety timeout — don't hang forever
+      setTimeout(() => {
+        if (endResolveRef.current) {
+          const text = (finalTranscriptRef.current + " " + interimRef.current).trim();
+          endResolveRef.current(text);
+          endResolveRef.current = null;
+        }
+      }, 2000);
+    });
   }, []);
 
   return {
