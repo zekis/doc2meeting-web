@@ -1939,6 +1939,10 @@ button.link-btn {
   line-height: 1.65;
   color: var(--fg);
 }
+/* Hide broken images from parsed document markdown — they cause layout shifts */
+.player-review-text img {
+  display: none;
+}
 .player-review-text h1,
 .player-review-text h2,
 .player-review-text h3 {
