@@ -63,8 +63,19 @@ export function Layout({ children, activeTab = "library", onNavigate }: LayoutPr
 
         <div className="flex items-center gap-2 ml-auto">
           {user && (
-            <span className="hidden phone:inline text-fg-muted text-sm truncate max-w-[120px]">
+            <span className="hidden phone:inline flex items-center gap-1.5 text-fg-muted text-sm truncate max-w-[200px]">
               {user.name}
+              <span
+                className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[0.65rem] font-semibold uppercase tracking-wide leading-none ${
+                  user.tier === "pro"
+                    ? "bg-accent/20 text-accent"
+                    : user.tier === "api"
+                      ? "bg-purple-500/20 text-purple-400"
+                      : "bg-surface-elevated text-fg-muted"
+                }`}
+              >
+                {user.tier || "free"}
+              </span>
             </span>
           )}
           <button
@@ -76,7 +87,7 @@ export function Layout({ children, activeTab = "library", onNavigate }: LayoutPr
           </button>
           <div
             className="w-8 h-8 rounded-full bg-accent/20 text-accent text-xs font-semibold flex items-center justify-center shrink-0"
-            title={user?.name ?? "User"}
+            title={user ? `${user.name} (${user.tier || "free"})` : "User"}
           >
             {initials}
           </div>
