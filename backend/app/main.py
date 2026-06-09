@@ -23,6 +23,9 @@ from __future__ import annotations
 from dotenv import load_dotenv
 load_dotenv()
 
+from .logging_config import setup_logging
+setup_logging()
+
 import io
 import os
 from datetime import datetime
@@ -42,6 +45,8 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from . import fs
 from .auth import router as auth_router
+from .billing import router as billing_router, check_usage_limits, record_usage
+from .health import router as health_router
 from .db import engine, get_session, init_db
 from .middleware import get_current_user, limiter, tier_limit
 from .models import AppSettings, Document, Review, ReviewStatus, User
@@ -101,8 +106,14 @@ app.add_middleware(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# Health check router (unprotected)
+app.include_router(health_router)
+
 # Auth router (unprotected — login/register/refresh/logout)
 app.include_router(auth_router)
+
+# Billing router (checkout + billing info protected; webhooks unprotected)
+app.include_router(billing_router)
 
 
 # ---------- Auth helpers for route protection ----------
@@ -180,6 +191,93 @@ def convert_file(body: ConvertBody, current_user: User = Depends(get_current_use
     }
 
 
+# ---------- File upload ----------
+
+UPLOAD_ALLOWED_EXTENSIONS = {".docx", ".md", ".pdf"}
+UPLOAD_MAX_SIZE = 50 * 1024 * 1024  # 50 MB
+UPLOAD_MAX_BATCH = 5
+
+
+@app.post("/api/documents/upload")
+async def upload_document(
+    request: Request,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Upload a .docx, .md, or .pdf file. Non-markdown files are auto-converted."""
+    if not file.filename:
+        raise HTTPException(400, "No filename provided")
+
+    ext = Path(file.filename).suffix.lower()
+    if ext not in UPLOAD_ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            400,
+            f"Unsupported file type: {ext}. Accepted: .docx, .md, .pdf",
+        )
+
+    content = await file.read()
+    if len(content) > UPLOAD_MAX_SIZE:
+        raise HTTPException(400, "File too large (max 50 MB)")
+    if len(content) == 0:
+        raise HTTPException(400, "Empty file")
+
+    # Deduplicate filenames in ROOT_DIR
+    base_name = Path(file.filename).stem
+    target = fs.root_dir() / file.filename
+    counter = 1
+    while target.exists():
+        target = fs.root_dir() / f"{base_name}_{counter}{ext}"
+        counter += 1
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(content)
+
+    # Convert non-markdown files to .md using markitdown
+    md_rel_path: str | None = None
+    if ext in (".docx", ".pdf"):
+        from markitdown import MarkItDown
+
+        try:
+            result = MarkItDown().convert(str(target))
+        except Exception as e:
+            target.unlink(missing_ok=True)
+            raise HTTPException(500, f"Conversion failed: {e}")
+        md_target = target.with_suffix(".md")
+        # Avoid overwriting existing .md with same name
+        md_counter = 1
+        while md_target.exists():
+            md_target = target.with_name(f"{target.stem}_{md_counter}.md")
+            md_counter += 1
+        cleaned = strip_toc(result.text_content or "")
+        md_target.write_text(cleaned, encoding="utf-8")
+        md_rel_path = fs.to_rel(md_target)
+
+    rel_path = md_rel_path or fs.to_rel(target)
+
+    # Create Document record
+    text = fs.read_text(rel_path)
+    hash_now = fs.content_hash(text)
+
+    with Session(engine) as session:
+        doc = Document(
+            rel_path=rel_path,
+            content_hash=hash_now,
+            user_id=current_user.id,
+            last_opened_at=datetime.utcnow(),
+        )
+        session.add(doc)
+        session.commit()
+        session.refresh(doc)
+
+        return {
+            "id": doc.id,
+            "rel_path": rel_path,
+            "name": Path(rel_path).name,
+            "original_name": file.filename,
+            "size": len(content),
+        }
+
+
 # ---------- Documents ----------
 
 class OpenBody(BaseModel):
@@ -197,14 +295,22 @@ def open_document(body: OpenBody, current_user: User = Depends(get_current_user)
         raise HTTPException(404, "File not found")
     hash_now = fs.content_hash(text)
 
+    # Estimate page count from sections for tier enforcement
+    sections = parse_markdown(text)
+    page_count = max(1, len(sections))
+
     with Session(engine) as session:
+        # Tier enforcement: check doc and page limits before processing
+        check_usage_limits(current_user, session, page_count=page_count)
+
         doc = session.exec(
             select(Document).where(
                 Document.rel_path == rel,
                 Document.user_id == current_user.id,
             )
         ).first()
-        if doc is None:
+        is_new = doc is None
+        if is_new:
             doc = Document(rel_path=rel, content_hash=hash_now, user_id=current_user.id)
             session.add(doc)
         else:
@@ -213,6 +319,11 @@ def open_document(body: OpenBody, current_user: User = Depends(get_current_user)
             session.add(doc)
         session.commit()
         session.refresh(doc)
+
+        # Record usage for new document processing
+        if is_new:
+            record_usage(session, current_user, document_id=doc.id, page_count=page_count)
+
         return _serialize_document(session, doc, text)
 
 

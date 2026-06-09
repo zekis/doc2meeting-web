@@ -1,6 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Icon from "@mdi/react";
-import { mdiArrowLeft, mdiCog, mdiFileDocumentOutline, mdiLogout, mdiPaperclip } from "@mdi/js";
+import {
+  mdiArrowLeft,
+  mdiPaperclip,
+} from "@mdi/js";
 import {
   api,
   DocumentDetail,
@@ -8,13 +11,21 @@ import {
   FileTreeNode,
   TreeResponse,
 } from "./api";
-import { useAuth } from "./auth/AuthContext";
 import { FileTree } from "./components/FileTree";
 import { DocReview } from "./components/DocReview";
 import { SettingsModal } from "./components/SettingsModal";
+import { Layout } from "./components/Layout";
+import { DocumentLibrary } from "./components/DocumentLibrary";
+import { UploadView } from "./components/UploadView";
+import { WelcomeScreen, hasCompletedOnboarding } from "./pages/Welcome";
+import { useAudioPlayer, PlayerPage, MiniPlayer } from "./audio";
+import { DropZone } from "./components/DropZone";
+import type { DropZoneHandle } from "./components/DropZone";
+import type { UploadItem } from "./components/UploadQueue";
+import { UploadQueue } from "./components/UploadQueue";
+import { ToastContainer, useToast } from "./components/Toast";
 
 export function App() {
-  const { user, logout } = useAuth();
   const [tree, setTree] = useState<TreeResponse | null>(null);
   const [recents, setRecents] = useState<DocumentSummary[]>([]);
   const [openDoc, setOpenDoc] = useState<DocumentDetail | null>(null);
@@ -22,6 +33,18 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [contextPickerOpen, setContextPickerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"library" | "upload" | "player" | "settings">("library");
+  const [showOnboarding, setShowOnboarding] = useState(() => !hasCompletedOnboarding());
+  const audioPlayer = useAudioPlayer();
+
+  // Upload state
+  const [uploadItems, setUploadItems] = useState<UploadItem[]>([]);
+  const { toasts, dismiss: dismissToast, toast } = useToast();
+  const dropZoneRef = useRef<DropZoneHandle>(null);
+
+  const triggerFilePicker = useCallback(() => {
+    dropZoneRef.current?.openFilePicker();
+  }, []);
 
   const refreshTree = async () => {
     try {
@@ -49,8 +72,10 @@ export function App() {
     setLoading(true);
     setError(null);
     try {
-      setOpenDoc(await api.openDocument(relPath));
-      // Update recents on next dashboard visit.
+      const doc = await api.openDocument(relPath);
+      setOpenDoc(doc);
+      setActiveTab("player");
+      audioPlayer.loadDocument(doc, true);
       refreshRecents();
     } catch (e) {
       setError((e as Error).message);
@@ -82,9 +107,11 @@ export function App() {
     setError(null);
     try {
       const result = await api.convertDocx(relPath);
-      // Refresh the tree so the new .md shows up, then open it for review.
       await refreshTree();
-      setOpenDoc(await api.openDocument(result.saved_rel_path));
+      const doc = await api.openDocument(result.saved_rel_path);
+      setOpenDoc(doc);
+      setActiveTab("player");
+      audioPlayer.loadDocument(doc, true);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -92,100 +119,121 @@ export function App() {
     }
   };
 
-  return (
-    <div className="app">
-      <header className="topbar">
-        {openDoc ? (
-          <>
-            <button
-              className="icon-btn"
-              onClick={() => setOpenDoc(null)}
-              title="Back to dashboard"
-            >
-              <Icon path={mdiArrowLeft} size={0.9} />
-            </button>
-            <span className="topbar-doc-name" title={openDoc.rel_path}>
-              {openDoc.name}
-            </span>
-            <button
-              className="icon-btn topbar-context-btn"
-              onClick={() => setContextPickerOpen(true)}
-              title="Choose reference documents the reviewer should consider"
-            >
-              <Icon path={mdiPaperclip} size={0.85} />
-              <span className="topbar-context-count">
-                {openDoc.context_paths.length}
-              </span>
-            </button>
-          </>
-        ) : (
-          tree && (
-            <span className="topbar-root" title={tree.root_abs}>
-              {tree.root}
-            </span>
+  const handleNavigate = (tab: "library" | "upload" | "player" | "settings") => {
+    if (tab === "settings") {
+      setSettingsOpen(true);
+      return;
+    }
+    setActiveTab(tab);
+  };
+
+  const handleBackToLibrary = () => {
+    setActiveTab("library");
+  };
+
+  const handleExpandPlayer = () => {
+    if (openDoc) {
+      setActiveTab("player");
+    }
+  };
+
+  const handleUploadComplete = useCallback(() => {
+    refreshTree();
+    refreshRecents();
+  }, []);
+
+  const handleRetryUpload = useCallback(
+    (id: string) => {
+      const item = uploadItems.find((i) => i.id === id);
+      if (!item) return;
+      setUploadItems((prev) =>
+        prev.map((i) => (i.id === id ? { ...i, status: "uploading" as const, progress: 0, error: undefined } : i))
+      );
+      api.uploadDocument(item.file, (pct) => {
+        setUploadItems((prev) =>
+          prev.map((i) => (i.id === id ? { ...i, status: "uploading" as const, progress: pct } : i))
+        );
+      }).then((result) => {
+        setUploadItems((prev) =>
+          prev.map((i) =>
+            i.id === id
+              ? { ...i, status: "done" as const, progress: 100, resultRelPath: result.rel_path }
+              : i
           )
-        )}
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginLeft: "auto" }}>
-          {user && <span className="topbar-user-name">{user.name}</span>}
-          <button
-            className="icon-btn topbar-settings-btn"
-            onClick={() => setSettingsOpen(true)}
-            title="Voice and tone settings"
-          >
-            <Icon path={mdiCog} size={0.9} />
-          </button>
-          <button
-            className="icon-btn"
-            onClick={logout}
-            title="Sign out"
-          >
-            <Icon path={mdiLogout} size={0.9} />
-          </button>
-        </div>
-      </header>
+        );
+        toast("success", `"${result.name}" uploaded successfully`);
+        handleUploadComplete();
+      }).catch((err) => {
+        const msg = err instanceof Error ? err.message : "Upload failed";
+        setUploadItems((prev) =>
+          prev.map((i) => (i.id === id ? { ...i, status: "error" as const, error: msg } : i))
+        );
+      });
+    },
+    [uploadItems, toast, handleUploadComplete]
+  );
 
-      {error && <div className="error-banner">{error}</div>}
-      {loading && <div className="loading-banner">working...</div>}
+  const handleRemoveUpload = useCallback((id: string) => {
+    setUploadItems((prev) => prev.filter((i) => i.id !== id));
+  }, []);
 
-      <div className={`app-body ${openDoc ? "app-body-doc" : "app-body-dash"}`}>
-        {!openDoc ? (
-          <div className="dashboard">
-            <div className="dashboard-tree pane">
-              {tree ? (
-                <FileTree
-                  tree={tree.tree as FileTreeNode}
-                  rootLabel={tree.root}
-                  activePath={null}
-                  onSelectFile={handleOpenFile}
-                  onConvertDocx={handleConvertDocx}
-                />
-              ) : (
-                <p className="empty">Loading tree...</p>
-              )}
-            </div>
-            <div className="dashboard-recents">
-              <h3 className="dashboard-recents-head">Recent</h3>
-              {recents.length === 0 ? (
-                <p className="empty">No recently opened documents yet.</p>
-              ) : (
-                <ul className="recent-card-list">
-                  {recents.map((r) => (
-                    <RecentCard
-                      key={r.id}
-                      doc={r}
-                      onOpen={() => handleOpenFile(r.rel_path)}
-                    />
-                  ))}
-                </ul>
-              )}
-            </div>
+  const handleDismissAllUploads = useCallback(() => {
+    setUploadItems((prev) => prev.filter((i) => i.status !== "done" && i.status !== "error"));
+  }, []);
+
+  const isPlayerView = activeTab === "player" && openDoc;
+
+  return (
+    <Layout activeTab={isPlayerView ? "player" : activeTab} onNavigate={handleNavigate}>
+      <DropZone
+        ref={dropZoneRef}
+        onToast={toast}
+        uploadItems={uploadItems}
+        setUploadItems={setUploadItems}
+        onUploadComplete={handleUploadComplete}
+      >
+        {error && (
+          <div className="px-4 py-2 text-sm bg-bad/10 text-bad border-b border-border">
+            {error}
           </div>
-        ) : (
-          <main className="pane pane-doc">
-            <DocReview doc={openDoc} onDocChanged={handleDocChanged} />
-          </main>
         )}
-      </div>
+        {loading && (
+          <div className="px-4 py-2 text-sm bg-surface text-fg-muted border-b border-border">
+            working...
+          </div>
+        )}
+
+        {isPlayerView ? (
+          /* ---- Audio Player view ---- */
+          <PlayerPage onBack={handleBackToLibrary} />
+        ) : showOnboarding ? (
+          /* ---- First-time onboarding ---- */
+          <WelcomeScreen
+            onUpload={() => {
+              setShowOnboarding(false);
+              setActiveTab("upload");
+            }}
+            onBrowse={() => {
+              setShowOnboarding(false);
+            }}
+          />
+        ) : activeTab === "upload" ? (
+          /* ---- Dedicated upload view ---- */
+          <UploadView onUploadClick={triggerFilePicker} />
+        ) : (
+          /* ---- Library card grid + mini-player ---- */
+          <>
+            <DocumentLibrary
+              documents={recents}
+              loading={loading || recents.length === 0 && tree === null}
+              onOpenDocument={handleOpenFile}
+              uploadItems={uploadItems}
+              onUpload={triggerFilePicker}
+            />
+            <MiniPlayer onExpand={handleExpandPlayer} />
+          </>
+        )}
+      </DropZone>
 
       {contextPickerOpen && openDoc && tree && (
         <ContextPickerModal
@@ -201,7 +249,18 @@ export function App() {
       {settingsOpen && (
         <SettingsModal onClose={() => setSettingsOpen(false)} />
       )}
-    </div>
+
+      {/* Upload queue bottom sheet */}
+      <UploadQueue
+        items={uploadItems}
+        onRetry={handleRetryUpload}
+        onRemove={handleRemoveUpload}
+        onDismissAll={handleDismissAllUploads}
+      />
+
+      {/* Toast notifications */}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+    </Layout>
   );
 }
 
@@ -212,64 +271,6 @@ interface ContextPickerProps {
   contextPaths: string[];
   onToggle: (relPath: string, on: boolean) => void;
   onClose: () => void;
-}
-
-function RecentCard({
-  doc,
-  onOpen,
-}: {
-  doc: DocumentSummary;
-  onOpen: () => void;
-}) {
-  const folder =
-    doc.rel_path.includes("/")
-      ? doc.rel_path.slice(0, doc.rel_path.lastIndexOf("/"))
-      : "";
-  const opened = new Date(doc.last_opened_at);
-  const sinceOpened = relativeTime(opened);
-
-  return (
-    <li className="recent-card">
-      <button
-        className="recent-card-btn"
-        onClick={onOpen}
-        title={doc.rel_path}
-      >
-        <Icon path={mdiFileDocumentOutline} size={1.1} />
-        <div className="recent-card-body">
-          <div className="recent-card-name">{doc.name}</div>
-          {folder && (
-            <div className="recent-card-folder">{folder}</div>
-          )}
-          <div className="recent-card-meta">
-            opened {sinceOpened}
-            {doc.context_paths.length > 0 && (
-              <>
-                {" "}
-                · {doc.context_paths.length} context doc
-                {doc.context_paths.length === 1 ? "" : "s"}
-              </>
-            )}
-          </div>
-        </div>
-      </button>
-    </li>
-  );
-}
-
-function relativeTime(d: Date): string {
-  const now = Date.now();
-  const ms = now - d.getTime();
-  if (ms < 0) return d.toLocaleString();
-  const sec = Math.floor(ms / 1000);
-  if (sec < 60) return "just now";
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min} min ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr} hour${hr === 1 ? "" : "s"} ago`;
-  const day = Math.floor(hr / 24);
-  if (day < 30) return `${day} day${day === 1 ? "" : "s"} ago`;
-  return d.toLocaleDateString();
 }
 
 function ContextPickerModal({
