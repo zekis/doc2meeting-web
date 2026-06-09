@@ -32,6 +32,7 @@ class User(SQLModel, table=True):
     tier: str = Field(default="free", index=True)  # free|pro|api|team
     stripe_customer_id: Optional[str] = Field(default=None, index=True, max_length=64)
     is_admin: bool = Field(default=False)
+    suspended_at: Optional[datetime] = Field(default=None)
     google_sub: str = Field(unique=True, index=True, max_length=64)
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 

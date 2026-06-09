@@ -150,7 +150,7 @@ async def google_callback(request: Request, session: Session = Depends(get_sessi
     # Redirect to frontend callback page with tokens in URL fragment
     # (fragment is never sent to the server — safer than query params)
     user_json = urllib.parse.quote(
-        json.dumps({"id": str(user.id), "email": user.email, "name": user.name, "tier": user.tier})
+        json.dumps({"id": str(user.id), "email": user.email, "name": user.name, "tier": user.tier, "is_admin": user.is_admin})
     )
     redirect_url = (
         f"{FRONTEND_BASE_URL}/auth/callback"

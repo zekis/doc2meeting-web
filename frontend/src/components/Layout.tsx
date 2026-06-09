@@ -6,24 +6,30 @@ import {
   mdiPlayCircleOutline,
   mdiCogOutline,
   mdiLogout,
+  mdiShieldAccountOutline,
 } from "@mdi/js";
 import { useAuth } from "../auth/AuthContext";
 
+export type NavTab = "library" | "upload" | "player" | "settings" | "admin";
+
 interface LayoutProps {
   children: ReactNode;
-  activeTab?: "library" | "upload" | "player" | "settings";
-  onNavigate?: (tab: "library" | "upload" | "player" | "settings") => void;
+  activeTab?: NavTab;
+  onNavigate?: (tab: NavTab) => void;
 }
 
-const NAV_ITEMS = [
-  { key: "library" as const, icon: mdiBookOpenPageVariant, label: "Library" },
-  { key: "upload" as const, icon: mdiCloudUploadOutline, label: "Upload" },
-  { key: "player" as const, icon: mdiPlayCircleOutline, label: "Player" },
-  { key: "settings" as const, icon: mdiCogOutline, label: "Settings" },
+const NAV_ITEMS: Array<{ key: NavTab; icon: string; label: string; adminOnly?: boolean }> = [
+  { key: "library", icon: mdiBookOpenPageVariant, label: "Library" },
+  { key: "upload", icon: mdiCloudUploadOutline, label: "Upload" },
+  { key: "player", icon: mdiPlayCircleOutline, label: "Player" },
+  { key: "settings", icon: mdiCogOutline, label: "Settings" },
+  { key: "admin", icon: mdiShieldAccountOutline, label: "Admin", adminOnly: true },
 ];
 
 export function Layout({ children, activeTab = "library", onNavigate }: LayoutProps) {
   const { user, logout } = useAuth();
+  const isAdmin = user?.is_admin ?? false;
+  const visibleItems = NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin);
 
   const initials = user?.name
     ? user.name
@@ -44,7 +50,7 @@ export function Layout({ children, activeTab = "library", onNavigate }: LayoutPr
 
         {/* Desktop nav (>1024px) */}
         <nav className="hidden laptop:flex items-center gap-1 ml-6">
-          {NAV_ITEMS.map((item) => (
+          {visibleItems.map((item) => (
             <button
               key={item.key}
               onClick={() => onNavigate?.(item.key)}
@@ -86,7 +92,7 @@ export function Layout({ children, activeTab = "library", onNavigate }: LayoutPr
       {/* ---- Tablet side rail (768-1024px) ---- */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
         <nav className="hidden tablet:flex laptop:hidden flex-col items-center gap-1 py-3 px-1.5 bg-surface border-r border-border w-16 shrink-0">
-          {NAV_ITEMS.map((item) => (
+          {visibleItems.map((item) => (
             <button
               key={item.key}
               onClick={() => onNavigate?.(item.key)}
@@ -122,7 +128,7 @@ export function Layout({ children, activeTab = "library", onNavigate }: LayoutPr
 
       {/* ---- Bottom nav (mobile, <768px) ---- */}
       <nav className="flex tablet:hidden items-center justify-around bg-surface border-t border-border py-1.5 px-2 shrink-0 safe-area-bottom">
-        {NAV_ITEMS.map((item) => (
+        {visibleItems.map((item) => (
           <button
             key={item.key}
             onClick={() => onNavigate?.(item.key)}

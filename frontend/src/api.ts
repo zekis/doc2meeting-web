@@ -398,3 +398,109 @@ export const api = {
     });
   },
 };
+
+// ---------------------------------------------------------------------------
+// Admin API
+// ---------------------------------------------------------------------------
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  name: string;
+  tier: string;
+  is_admin: boolean;
+  stripe_customer_id: string | null;
+  suspended_at: string | null;
+  created_at: string;
+  doc_count: number;
+  review_count: number;
+}
+
+export interface AdminUserList {
+  users: AdminUser[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+export interface AdminUserDetail extends AdminUser {
+  subscriptions: Array<{
+    id: string;
+    tier: string;
+    status: string;
+    stripe_subscription_id: string;
+    current_period_start: string;
+    current_period_end: string;
+    created_at: string;
+    canceled_at: string | null;
+  }>;
+  recent_usage: Array<{
+    id: number;
+    action: string;
+    page_count: number;
+    created_at: string;
+  }>;
+}
+
+export interface AdminStats {
+  total_users: number;
+  total_documents: number;
+  total_pages: number;
+  total_audio_minutes: number;
+  by_period: Array<{ date: string; docs: number; pages: number }>;
+}
+
+export interface AdminRevenue {
+  mrr_cents: number;
+  mrr_display: string;
+  active_subscriptions: number;
+  past_due: number;
+  canceled_30d: number;
+  new_30d: number;
+  tier_breakdown: Record<string, number>;
+}
+
+export interface AdminHealth {
+  status: string;
+  services: Record<string, { status: string; [key: string]: unknown }>;
+  timestamp: string;
+}
+
+export const adminApi = {
+  listUsers: async (
+    params: { q?: string; tier?: string; page?: number; page_size?: number } = {}
+  ): Promise<AdminUserList> => {
+    const qs = new URLSearchParams();
+    if (params.q) qs.set("q", params.q);
+    if (params.tier) qs.set("tier", params.tier);
+    if (params.page) qs.set("page", String(params.page));
+    if (params.page_size) qs.set("page_size", String(params.page_size));
+    return jsonOrThrow(await authFetch(`/api/admin/users?${qs.toString()}`));
+  },
+
+  getUser: async (userId: string): Promise<AdminUserDetail> =>
+    jsonOrThrow(await authFetch(`/api/admin/users/${userId}`)),
+
+  suspendUser: async (userId: string, suspend: boolean): Promise<{ id: string; suspended: boolean }> =>
+    sendJson("POST", `/api/admin/users/${userId}/suspend`, { suspend }),
+
+  getStats: async (period: string = "month"): Promise<AdminStats> =>
+    jsonOrThrow(await authFetch(`/api/admin/stats?period=${period}`)),
+
+  getRevenue: async (): Promise<AdminRevenue> =>
+    jsonOrThrow(await authFetch("/api/admin/revenue")),
+
+  getHealth: async (): Promise<AdminHealth> =>
+    jsonOrThrow(await authFetch("/api/admin/health")),
+
+  exportNotes: async (docId: number): Promise<{
+    document_id: number;
+    document_path: string;
+    exported_at: string;
+    total_reviews: number;
+    accepted: number;
+    rejected: number;
+    pending: number;
+    markdown: string;
+  }> => jsonOrThrow(await authFetch(`/api/documents/${docId}/export/notes`)),
+};

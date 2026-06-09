@@ -5,6 +5,7 @@ export interface AuthUser {
   email: string;
   name: string;
   tier: string;
+  is_admin?: boolean;
 }
 
 interface AuthState {

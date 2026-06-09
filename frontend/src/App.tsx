@@ -14,10 +14,11 @@ import {
 import { FileTree } from "./components/FileTree";
 import { DocReview } from "./components/DocReview";
 import { SettingsModal } from "./components/SettingsModal";
-import { Layout } from "./components/Layout";
+import { Layout, type NavTab } from "./components/Layout";
 import { DocumentLibrary } from "./components/DocumentLibrary";
 import { UploadView } from "./components/UploadView";
 import { WelcomeScreen, hasCompletedOnboarding } from "./pages/Welcome";
+import { AdminDashboard } from "./pages/AdminDashboard";
 import { useAudioPlayer, PlayerPage, MiniPlayer } from "./audio";
 import { DropZone } from "./components/DropZone";
 import type { DropZoneHandle } from "./components/DropZone";
@@ -33,7 +34,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [contextPickerOpen, setContextPickerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"library" | "upload" | "player" | "settings">("library");
+  const [activeTab, setActiveTab] = useState<NavTab>("library");
   const [showOnboarding, setShowOnboarding] = useState(() => !hasCompletedOnboarding());
   const audioPlayer = useAudioPlayer();
 
@@ -119,7 +120,7 @@ export function App() {
     }
   };
 
-  const handleNavigate = (tab: "library" | "upload" | "player" | "settings") => {
+  const handleNavigate = (tab: NavTab) => {
     if (tab === "settings") {
       setSettingsOpen(true);
       return;
@@ -217,6 +218,9 @@ export function App() {
               setShowOnboarding(false);
             }}
           />
+        ) : activeTab === "admin" ? (
+          /* ---- Admin Dashboard ---- */
+          <AdminDashboard onBack={handleBackToLibrary} />
         ) : activeTab === "upload" ? (
           /* ---- Dedicated upload view ---- */
           <UploadView onUploadClick={triggerFilePicker} />

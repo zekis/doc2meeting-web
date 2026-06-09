@@ -44,9 +44,13 @@ from sqlmodel import Session, select
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import fs
+from .admin import router as admin_router
 from .auth import router as auth_router
 from .billing import router as billing_router, check_usage_limits, record_usage
+from .email_inbound import router as email_router
+from .export import router as export_router
 from .health import router as health_router
+from .telegram import router as telegram_router
 from .db import engine, get_session, init_db
 from .middleware import get_current_user, limiter, tier_limit
 from .models import AppSettings, Document, Review, ReviewStatus, User
@@ -114,6 +118,18 @@ app.include_router(auth_router)
 
 # Billing router (checkout + billing info protected; webhooks unprotected)
 app.include_router(billing_router)
+
+# Admin dashboard router (all routes require is_admin)
+app.include_router(admin_router)
+
+# Export router (structured notes)
+app.include_router(export_router)
+
+# Email inbound webhook router (unprotected — verified by signature)
+app.include_router(email_router)
+
+# Telegram bot router (webhook unprotected; setup requires admin)
+app.include_router(telegram_router)
 
 
 # ---------- Auth helpers for route protection ----------

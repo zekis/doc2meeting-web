@@ -51,6 +51,9 @@ async def get_current_user(
     if not user:
         raise HTTPException(401, detail="user not found")
 
+    if getattr(user, "suspended_at", None) is not None:
+        raise HTTPException(403, detail="account suspended")
+
     # Stash on request.state for rate limiter access
     request.state.current_user = user
     return user
