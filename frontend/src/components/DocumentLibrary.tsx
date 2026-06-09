@@ -20,6 +20,7 @@ interface DocumentLibraryProps {
   loading: boolean;
   onOpenDocument: (relPath: string) => void;
   uploadItems?: UploadItem[];
+  onUpload?: () => void;
 }
 
 /** Derive file extension for type-based card styling. */
@@ -53,7 +54,7 @@ function relativeTime(d: Date): string {
   return d.toLocaleDateString();
 }
 
-export function DocumentLibrary({ documents, loading, onOpenDocument, uploadItems = [] }: DocumentLibraryProps) {
+export function DocumentLibrary({ documents, loading, onOpenDocument, uploadItems = [], onUpload }: DocumentLibraryProps) {
   const [sort, setSort] = useState<SortMode>("recent");
 
   const sorted = useMemo(() => {
@@ -95,13 +96,18 @@ export function DocumentLibrary({ documents, loading, onOpenDocument, uploadItem
           </div>
           <h3 className="text-lg font-medium mb-2">No documents yet</h3>
           <p className="text-fg-muted text-sm text-center max-w-xs mb-6">
-            Open a document from the file tree to get started with your first review.
+            Upload a .docx, .md, or .pdf file to get started with your first review.
           </p>
-          <div className="border-2 border-dashed border-border rounded-card px-8 py-6 text-center">
-            <p className="text-fg-muted text-sm">
-              Use the <span className="text-accent font-medium">Upload</span> tab to add documents
-            </p>
-          </div>
+          <button
+            type="button"
+            onClick={onUpload}
+            className="px-5 py-2.5 rounded-btn bg-accent text-accent-fg font-medium text-sm hover:opacity-90 transition-opacity mb-4"
+          >
+            Upload Your First Document
+          </button>
+          <p className="text-fg-muted text-xs">
+            or drag and drop files anywhere on this page
+          </p>
         </div>
       </div>
     );

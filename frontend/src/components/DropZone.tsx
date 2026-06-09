@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, forwardRef, useImperativeHandle } from "react";
 import Icon from "@mdi/react";
 import {
   mdiFileWordBox,
@@ -27,6 +27,10 @@ interface DropZoneProps {
   onUploadComplete: () => void;
 }
 
+export interface DropZoneHandle {
+  openFilePicker: () => void;
+}
+
 let _uploadId = 0;
 
 function isAcceptedFile(file: File): boolean {
@@ -34,13 +38,10 @@ function isAcceptedFile(file: File): boolean {
   return ACCEPTED_EXTENSIONS.includes(ext);
 }
 
-export function DropZone({
-  children,
-  onToast,
-  uploadItems,
-  setUploadItems,
-  onUploadComplete,
-}: DropZoneProps) {
+export const DropZone = forwardRef<DropZoneHandle, DropZoneProps>(function DropZone(
+  { children, onToast, uploadItems, setUploadItems, onUploadComplete },
+  ref,
+) {
   const [dragging, setDragging] = useState(false);
   const dragCounter = useRef(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -189,6 +190,8 @@ export function DropZone({
     fileInputRef.current?.click();
   }, []);
 
+  useImperativeHandle(ref, () => ({ openFilePicker }), [openFilePicker]);
+
   const handleFileInput = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       if (e.target.files) {
@@ -250,7 +253,7 @@ export function DropZone({
       )}
     </div>
   );
-}
+});
 
 // Re-export for App to use the retry logic
 export { type UploadItem };
