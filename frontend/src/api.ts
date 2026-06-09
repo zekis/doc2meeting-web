@@ -15,6 +15,14 @@ export interface TreeResponse {
   tree: FileTreeNode;
 }
 
+export interface UserCommentData {
+  id: number;
+  section_idx: number;
+  paragraph_idx: number;
+  text: string;
+  created_at: string;
+}
+
 export interface DocumentSummary {
   id: number;
   rel_path: string;
@@ -200,6 +208,23 @@ export const api = {
 
   getDocument: async (id: number): Promise<DocumentDetail> =>
     jsonOrThrow(await authFetch(`/api/documents/${id}`)),
+
+  // User voice comments
+  listComments: async (docId: number): Promise<UserCommentData[]> =>
+    jsonOrThrow(await authFetch(`/api/documents/${docId}/comments`)),
+
+  createComment: async (docId: number, sectionIdx: number, paragraphIdx: number, text: string): Promise<UserCommentData> =>
+    sendJson("POST", `/api/documents/${docId}/comments`, { section_idx: sectionIdx, paragraph_idx: paragraphIdx, text }),
+
+  deleteComment: async (docId: number, commentId: number): Promise<void> => {
+    await jsonOrThrow(await authFetch(`/api/documents/${docId}/comments/${commentId}`, { method: "DELETE" }));
+  },
+
+  exportComments: async (docId: number): Promise<string> => {
+    const res = await authFetch(`/api/documents/${docId}/comments/export`);
+    if (!res.ok) throw new Error(`Export failed: ${res.status}`);
+    return res.text();
+  },
 
   setContextPaths: async (
     docId: number,

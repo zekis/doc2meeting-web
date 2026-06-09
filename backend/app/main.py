@@ -54,7 +54,7 @@ from .health import router as health_router
 from .telegram import router as telegram_router
 from .db import engine, get_session, init_db
 from .middleware import get_current_user, limiter, tier_limit
-from .models import AppSettings, Document, Review, ReviewStatus, UsageRecord, User
+from .models import AppSettings, Document, Review, ReviewStatus, UsageRecord, User, UserComment
 from .pipeline import (
     SectionHistoryEntry,
     cost_usd,
@@ -431,6 +431,13 @@ def delete_document(doc_id: int, current_user: User = Depends(get_current_user))
         for u in usage_records:
             session.delete(u)
 
+        # Delete user comments
+        user_comments = session.exec(
+            select(UserComment).where(UserComment.document_id == doc_id)
+        ).all()
+        for uc in user_comments:
+            session.delete(uc)
+
         # Delete audio files
         audio_dir = AUDIO_DIR / str(doc_id)
         if audio_dir.is_dir():
@@ -448,6 +455,133 @@ def delete_document(doc_id: int, current_user: User = Depends(get_current_user))
         session.commit()
 
     return {"deleted": True, "id": doc_id}
+
+
+# ---------- User voice comments (STT) ----------
+
+
+class CommentBody(BaseModel):
+    section_idx: int
+    paragraph_idx: int
+    text: str
+
+
+@app.post("/api/documents/{doc_id}/comments")
+def create_comment(
+    doc_id: int,
+    body: CommentBody,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Create a voice-to-text comment on a specific paragraph."""
+    with Session(engine) as session:
+        _get_user_doc(session, doc_id, current_user)
+        comment = UserComment(
+            document_id=doc_id,
+            section_idx=body.section_idx,
+            paragraph_idx=body.paragraph_idx,
+            user_id=current_user.id,
+            text=body.text,
+        )
+        session.add(comment)
+        session.commit()
+        session.refresh(comment)
+        return {
+            "id": comment.id,
+            "document_id": comment.document_id,
+            "section_idx": comment.section_idx,
+            "paragraph_idx": comment.paragraph_idx,
+            "text": comment.text,
+            "created_at": comment.created_at.isoformat(),
+        }
+
+
+@app.get("/api/documents/{doc_id}/comments")
+def list_comments(
+    doc_id: int,
+    current_user: User = Depends(get_current_user),
+) -> list[dict]:
+    """List all user comments for a document."""
+    with Session(engine) as session:
+        _get_user_doc(session, doc_id, current_user)
+        comments = session.exec(
+            select(UserComment)
+            .where(UserComment.document_id == doc_id, UserComment.user_id == current_user.id)
+            .order_by(UserComment.section_idx, UserComment.paragraph_idx, UserComment.created_at)
+        ).all()
+        return [
+            {
+                "id": c.id,
+                "section_idx": c.section_idx,
+                "paragraph_idx": c.paragraph_idx,
+                "text": c.text,
+                "created_at": c.created_at.isoformat(),
+            }
+            for c in comments
+        ]
+
+
+@app.delete("/api/documents/{doc_id}/comments/{comment_id}")
+def delete_comment(
+    doc_id: int,
+    comment_id: int,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Delete a specific user comment."""
+    with Session(engine) as session:
+        comment = session.get(UserComment, comment_id)
+        if not comment or comment.document_id != doc_id or comment.user_id != current_user.id:
+            raise HTTPException(404, "Comment not found")
+        session.delete(comment)
+        session.commit()
+        return {"deleted": True}
+
+
+@app.get("/api/documents/{doc_id}/comments/export")
+def export_comments(
+    doc_id: int,
+    current_user: User = Depends(get_current_user),
+) -> PlainTextResponse:
+    """Export all user comments for a document as markdown."""
+    with Session(engine) as session:
+        doc = _get_user_doc(session, doc_id, current_user)
+        comments = session.exec(
+            select(UserComment)
+            .where(UserComment.document_id == doc_id, UserComment.user_id == current_user.id)
+            .order_by(UserComment.section_idx, UserComment.paragraph_idx, UserComment.created_at)
+        ).all()
+
+        if not comments:
+            return PlainTextResponse(
+                f"# Review Notes: {Path(doc.rel_path).name}\n\nNo comments recorded.\n",
+                media_type="text/markdown",
+            )
+
+        # Group comments by section
+        from collections import defaultdict
+        by_section: dict[int, list[UserComment]] = defaultdict(list)
+        for c in comments:
+            by_section[c.section_idx].append(c)
+
+        # Try to get section titles from the document
+        try:
+            text = fs.read_text(doc.rel_path)
+            sections = parse_markdown(text)
+            section_titles = {s["idx"]: s["title"] for s in sections}
+        except Exception:
+            section_titles = {}
+
+        lines = [f"# Review Notes: {Path(doc.rel_path).name}\n"]
+        for sec_idx in sorted(by_section.keys()):
+            title = section_titles.get(sec_idx, f"Section {sec_idx + 1}")
+            lines.append(f"\n## {title}\n")
+            for c in by_section[sec_idx]:
+                lines.append(f"- **[¶{c.paragraph_idx + 1}]** {c.text}")
+
+        return PlainTextResponse(
+            "\n".join(lines) + "\n",
+            media_type="text/markdown",
+            headers={"Content-Disposition": f'attachment; filename="{Path(doc.rel_path).stem}_notes.md"'},
+        )
 
 
 # ---------- Save as next version ----------

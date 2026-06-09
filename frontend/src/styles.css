@@ -1990,9 +1990,156 @@ button.link-btn {
   margin: 0.25rem -0.6rem;
   transition: background 0.2s;
 }
+.player-paragraph {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+.player-paragraph-text {
+  flex: 1;
+  min-width: 0;
+}
 .player-paragraph.active {
   background: rgba(78, 205, 196, 0.1);
   box-shadow: inset 3px 0 0 var(--accent);
+}
+
+/* Per-paragraph mic button */
+.player-para-mic {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  margin-top: 0.25rem;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  color: var(--fg-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+.player-paragraph-wrapper:hover .player-para-mic,
+.player-para-mic.recording {
+  opacity: 1;
+}
+.player-para-mic:hover {
+  color: var(--accent);
+  background: rgba(78, 205, 196, 0.12);
+}
+.player-para-mic.recording {
+  color: var(--bad);
+  background: rgba(248, 113, 113, 0.15);
+  animation: mic-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes mic-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* Interim transcript (grey italic while recording) */
+.player-comment-interim {
+  font-size: 0.8rem;
+  font-style: italic;
+  color: var(--fg-muted);
+  padding: 0.15rem 0.6rem 0.15rem 1rem;
+  opacity: 0.7;
+}
+
+/* Comments under a paragraph */
+.player-comments {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.25rem 0.6rem 0.25rem 1rem;
+}
+.player-comment {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  color: var(--accent);
+  background: rgba(78, 205, 196, 0.06);
+  border-radius: 4px;
+  padding: 0.3rem 0.5rem;
+}
+.player-comment-text {
+  flex: 1;
+  line-height: 1.35;
+}
+.player-comment-delete {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  color: var(--fg-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+.player-comment:hover .player-comment-delete {
+  opacity: 1;
+}
+.player-comment-delete:hover {
+  color: var(--bad);
+}
+
+/* Floating mic button */
+.player-floating-mic {
+  position: fixed;
+  bottom: 7rem;
+  right: 1.25rem;
+  z-index: 30;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+  border: none;
+  background: var(--surface-elevated);
+  color: var(--fg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+  transition: background 0.2s, color 0.2s, transform 0.15s;
+}
+.player-floating-mic:hover {
+  background: var(--accent);
+  color: var(--accent-fg);
+  transform: scale(1.05);
+}
+.player-floating-mic.recording {
+  background: var(--bad);
+  color: #fff;
+  animation: mic-pulse 1.2s ease-in-out infinite;
+}
+
+/* Secondary button (used next to primary on finished state) */
+button.secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  font-size: 0.875rem;
+  border-radius: var(--radius-btn);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+}
+button.secondary:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 /* Finished state */

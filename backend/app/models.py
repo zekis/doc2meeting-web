@@ -104,6 +104,21 @@ class Review(SQLModel, table=True):
     resolved_at: Optional[datetime] = None
 
 
+# ---------- User voice comments (STT) ----------
+
+class UserComment(SQLModel, table=True):
+    """Voice-to-text comment recorded by a user on a specific paragraph."""
+    __tablename__ = "user_comment"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    document_id: int = Field(foreign_key="document.id", index=True)
+    section_idx: int = Field(default=0)
+    paragraph_idx: int = Field(default=0)
+    user_id: str = Field(foreign_key="user.id", index=True, max_length=36)
+    text: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
 # ---------- Billing / Subscription models ----------
 
 class Subscription(SQLModel, table=True):
