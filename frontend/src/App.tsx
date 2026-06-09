@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import Icon from "@mdi/react";
-import { mdiArrowLeft, mdiCog, mdiFileDocumentOutline, mdiLogout, mdiPaperclip } from "@mdi/js";
+import {
+  mdiArrowLeft,
+  mdiFileDocumentOutline,
+  mdiPaperclip,
+} from "@mdi/js";
 import {
   api,
   DocumentDetail,
@@ -8,13 +12,12 @@ import {
   FileTreeNode,
   TreeResponse,
 } from "./api";
-import { useAuth } from "./auth/AuthContext";
 import { FileTree } from "./components/FileTree";
 import { DocReview } from "./components/DocReview";
 import { SettingsModal } from "./components/SettingsModal";
+import { Layout } from "./components/Layout";
 
 export function App() {
-  const { user, logout } = useAuth();
   const [tree, setTree] = useState<TreeResponse | null>(null);
   const [recents, setRecents] = useState<DocumentSummary[]>([]);
   const [openDoc, setOpenDoc] = useState<DocumentDetail | null>(null);
@@ -22,6 +25,7 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [contextPickerOpen, setContextPickerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"library" | "upload" | "player" | "settings">("library");
 
   const refreshTree = async () => {
     try {
@@ -50,7 +54,7 @@ export function App() {
     setError(null);
     try {
       setOpenDoc(await api.openDocument(relPath));
-      // Update recents on next dashboard visit.
+      setActiveTab("player");
       refreshRecents();
     } catch (e) {
       setError((e as Error).message);
@@ -82,9 +86,9 @@ export function App() {
     setError(null);
     try {
       const result = await api.convertDocx(relPath);
-      // Refresh the tree so the new .md shows up, then open it for review.
       await refreshTree();
       setOpenDoc(await api.openDocument(result.saved_rel_path));
+      setActiveTab("player");
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -92,65 +96,66 @@ export function App() {
     }
   };
 
+  const handleNavigate = (tab: "library" | "upload" | "player" | "settings") => {
+    if (tab === "settings") {
+      setSettingsOpen(true);
+      return;
+    }
+    if (tab === "library") {
+      setOpenDoc(null);
+    }
+    setActiveTab(tab);
+  };
+
   return (
-    <div className="app">
-      <header className="topbar">
-        {openDoc ? (
-          <>
+    <Layout activeTab={openDoc ? "player" : activeTab} onNavigate={handleNavigate}>
+      {error && (
+        <div className="px-4 py-2 text-sm bg-bad/10 text-bad border-b border-border">
+          {error}
+        </div>
+      )}
+      {loading && (
+        <div className="px-4 py-2 text-sm bg-surface text-fg-muted border-b border-border">
+          working...
+        </div>
+      )}
+
+      {openDoc ? (
+        /* ---- Player / Doc Review view ---- */
+        <div className="flex flex-col h-full min-h-0">
+          {/* Sub-header for document context */}
+          <div className="flex items-center gap-2 px-4 py-2 bg-surface border-b border-border shrink-0">
             <button
+              onClick={() => { setOpenDoc(null); setActiveTab("library"); }}
               className="icon-btn"
-              onClick={() => setOpenDoc(null)}
-              title="Back to dashboard"
+              title="Back to library"
             >
               <Icon path={mdiArrowLeft} size={0.9} />
             </button>
-            <span className="topbar-doc-name" title={openDoc.rel_path}>
+            <span className="flex-1 min-w-0 text-sm font-medium truncate" title={openDoc.rel_path}>
               {openDoc.name}
             </span>
             <button
-              className="icon-btn topbar-context-btn"
+              className="icon-btn inline-flex items-center gap-1"
               onClick={() => setContextPickerOpen(true)}
-              title="Choose reference documents the reviewer should consider"
+              title="Choose reference documents"
             >
               <Icon path={mdiPaperclip} size={0.85} />
-              <span className="topbar-context-count">
+              <span className="text-xs text-fg-muted tabular-nums">
                 {openDoc.context_paths.length}
               </span>
             </button>
-          </>
-        ) : (
-          tree && (
-            <span className="topbar-root" title={tree.root_abs}>
-              {tree.root}
-            </span>
-          )
-        )}
-        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginLeft: "auto" }}>
-          {user && <span className="topbar-user-name">{user.name}</span>}
-          <button
-            className="icon-btn topbar-settings-btn"
-            onClick={() => setSettingsOpen(true)}
-            title="Voice and tone settings"
-          >
-            <Icon path={mdiCog} size={0.9} />
-          </button>
-          <button
-            className="icon-btn"
-            onClick={logout}
-            title="Sign out"
-          >
-            <Icon path={mdiLogout} size={0.9} />
-          </button>
+          </div>
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <DocReview doc={openDoc} onDocChanged={handleDocChanged} />
+          </div>
         </div>
-      </header>
-
-      {error && <div className="error-banner">{error}</div>}
-      {loading && <div className="loading-banner">working...</div>}
-
-      <div className={`app-body ${openDoc ? "app-body-doc" : "app-body-dash"}`}>
-        {!openDoc ? (
-          <div className="dashboard">
-            <div className="dashboard-tree pane">
+      ) : (
+        /* ---- Library view ---- */
+        <div className="w-full max-w-5xl mx-auto p-4 phone:p-6">
+          <div className="grid grid-cols-1 tablet:grid-cols-2 gap-4 phone:gap-6">
+            {/* File tree card */}
+            <div className="bg-surface border border-border rounded-card p-4">
               {tree ? (
                 <FileTree
                   tree={tree.tree as FileTreeNode}
@@ -160,15 +165,18 @@ export function App() {
                   onConvertDocx={handleConvertDocx}
                 />
               ) : (
-                <p className="empty">Loading tree...</p>
+                <p className="text-fg-muted p-4">Loading tree...</p>
               )}
             </div>
-            <div className="dashboard-recents">
-              <h3 className="dashboard-recents-head">Recent</h3>
+            {/* Recent documents card */}
+            <div className="bg-surface border border-border rounded-card p-4">
+              <h3 className="text-xs uppercase tracking-wider text-fg-muted mb-3">
+                Recent
+              </h3>
               {recents.length === 0 ? (
-                <p className="empty">No recently opened documents yet.</p>
+                <p className="text-fg-muted">No recently opened documents yet.</p>
               ) : (
-                <ul className="recent-card-list">
+                <ul className="flex flex-col gap-2">
                   {recents.map((r) => (
                     <RecentCard
                       key={r.id}
@@ -180,12 +188,8 @@ export function App() {
               )}
             </div>
           </div>
-        ) : (
-          <main className="pane pane-doc">
-            <DocReview doc={openDoc} onDocChanged={handleDocChanged} />
-          </main>
-        )}
-      </div>
+        </div>
+      )}
 
       {contextPickerOpen && openDoc && tree && (
         <ContextPickerModal
@@ -201,7 +205,7 @@ export function App() {
       {settingsOpen && (
         <SettingsModal onClose={() => setSettingsOpen(false)} />
       )}
-    </div>
+    </Layout>
   );
 }
 
@@ -229,24 +233,25 @@ function RecentCard({
   const sinceOpened = relativeTime(opened);
 
   return (
-    <li className="recent-card">
+    <li className="flex">
       <button
-        className="recent-card-btn"
+        className="w-full flex gap-3 items-start text-left bg-surface-elevated border border-border rounded-card p-3 text-fg cursor-pointer transition-colors hover:border-accent hover:bg-accent/5"
         onClick={onOpen}
         title={doc.rel_path}
       >
         <Icon path={mdiFileDocumentOutline} size={1.1} />
-        <div className="recent-card-body">
-          <div className="recent-card-name">{doc.name}</div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium truncate">{doc.name}</div>
           {folder && (
-            <div className="recent-card-folder">{folder}</div>
+            <div className="text-xs text-fg-muted font-mono truncate mt-0.5">
+              {folder}
+            </div>
           )}
-          <div className="recent-card-meta">
+          <div className="text-xs text-fg-muted mt-1">
             opened {sinceOpened}
             {doc.context_paths.length > 0 && (
               <>
-                {" "}
-                · {doc.context_paths.length} context doc
+                {" "}· {doc.context_paths.length} context doc
                 {doc.context_paths.length === 1 ? "" : "s"}
               </>
             )}
