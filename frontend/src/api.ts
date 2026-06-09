@@ -102,6 +102,14 @@ export interface AppSettings {
   available_personas: string[];
 }
 
+export interface UploadResult {
+  id: number;
+  rel_path: string;
+  name: string;
+  original_name: string;
+  size: number;
+}
+
 export type AppSettingsPatch = Partial<
   Pick<
     AppSettings,
@@ -326,4 +334,51 @@ export const api = {
 
   updateSettings: async (patch: AppSettingsPatch): Promise<AppSettings> =>
     sendJson("PATCH", "/api/settings", patch),
+
+  uploadDocument: async (
+    file: File,
+    onProgress?: (pct: number) => void
+  ): Promise<UploadResult> => {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", "/api/documents/upload");
+
+      // Set auth header
+      const headers = getAuthHeaders();
+      for (const [k, v] of Object.entries(headers)) {
+        xhr.setRequestHeader(k, v);
+      }
+
+      xhr.upload.addEventListener("progress", (e) => {
+        if (e.lengthComputable && onProgress) {
+          onProgress(Math.round((e.loaded / e.total) * 100));
+        }
+      });
+
+      xhr.addEventListener("load", () => {
+        if (xhr.status === 401) {
+          localStorage.removeItem(STORAGE_KEY);
+          window.location.href = "/login";
+          reject(new Error("Session expired"));
+          return;
+        }
+        if (xhr.status >= 400) {
+          reject(new Error(`${xhr.status}: ${xhr.responseText}`));
+          return;
+        }
+        try {
+          resolve(JSON.parse(xhr.responseText));
+        } catch {
+          reject(new Error("Invalid response"));
+        }
+      });
+
+      xhr.addEventListener("error", () => reject(new Error("Upload failed")));
+      xhr.addEventListener("abort", () => reject(new Error("Upload cancelled")));
+
+      const form = new FormData();
+      form.append("file", file);
+      xhr.send(form);
+    });
+  },
 };
