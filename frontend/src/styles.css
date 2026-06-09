@@ -1446,3 +1446,31 @@ button.link-btn {
 }
 
 /* topbar-user-name removed — now uses Tailwind classes in Layout */
+
+/* ------------- Document library cards ------------- */
+
+/* Skeleton loading pulse animation */
+.skeleton-pulse {
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+}
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.15; }
+}
+
+/* Status badge pulse for processing state */
+.status-pulse {
+  animation: status-pulse 2s ease-in-out infinite;
+}
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* 2-line truncation for card titles */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}

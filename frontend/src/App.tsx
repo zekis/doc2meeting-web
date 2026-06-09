@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import Icon from "@mdi/react";
 import {
   mdiArrowLeft,
-  mdiFileDocumentOutline,
   mdiPaperclip,
 } from "@mdi/js";
 import {
@@ -16,6 +15,8 @@ import { FileTree } from "./components/FileTree";
 import { DocReview } from "./components/DocReview";
 import { SettingsModal } from "./components/SettingsModal";
 import { Layout } from "./components/Layout";
+import { DocumentLibrary } from "./components/DocumentLibrary";
+import { WelcomeScreen, hasCompletedOnboarding } from "./pages/Welcome";
 
 export function App() {
   const [tree, setTree] = useState<TreeResponse | null>(null);
@@ -26,6 +27,7 @@ export function App() {
   const [contextPickerOpen, setContextPickerOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"library" | "upload" | "player" | "settings">("library");
+  const [showOnboarding, setShowOnboarding] = useState(() => !hasCompletedOnboarding());
 
   const refreshTree = async () => {
     try {
@@ -150,45 +152,24 @@ export function App() {
             <DocReview doc={openDoc} onDocChanged={handleDocChanged} />
           </div>
         </div>
+      ) : showOnboarding ? (
+        /* ---- First-time onboarding ---- */
+        <WelcomeScreen
+          onUpload={() => {
+            setShowOnboarding(false);
+            setActiveTab("upload");
+          }}
+          onBrowse={() => {
+            setShowOnboarding(false);
+          }}
+        />
       ) : (
-        /* ---- Library view ---- */
-        <div className="w-full max-w-5xl mx-auto p-4 phone:p-6">
-          <div className="grid grid-cols-1 tablet:grid-cols-2 gap-4 phone:gap-6">
-            {/* File tree card */}
-            <div className="bg-surface border border-border rounded-card p-4">
-              {tree ? (
-                <FileTree
-                  tree={tree.tree as FileTreeNode}
-                  rootLabel={tree.root}
-                  activePath={null}
-                  onSelectFile={handleOpenFile}
-                  onConvertDocx={handleConvertDocx}
-                />
-              ) : (
-                <p className="text-fg-muted p-4">Loading tree...</p>
-              )}
-            </div>
-            {/* Recent documents card */}
-            <div className="bg-surface border border-border rounded-card p-4">
-              <h3 className="text-xs uppercase tracking-wider text-fg-muted mb-3">
-                Recent
-              </h3>
-              {recents.length === 0 ? (
-                <p className="text-fg-muted">No recently opened documents yet.</p>
-              ) : (
-                <ul className="flex flex-col gap-2">
-                  {recents.map((r) => (
-                    <RecentCard
-                      key={r.id}
-                      doc={r}
-                      onOpen={() => handleOpenFile(r.rel_path)}
-                    />
-                  ))}
-                </ul>
-              )}
-            </div>
-          </div>
-        </div>
+        /* ---- Library card grid ---- */
+        <DocumentLibrary
+          documents={recents}
+          loading={loading || recents.length === 0 && tree === null}
+          onOpenDocument={handleOpenFile}
+        />
       )}
 
       {contextPickerOpen && openDoc && tree && (
@@ -216,65 +197,6 @@ interface ContextPickerProps {
   contextPaths: string[];
   onToggle: (relPath: string, on: boolean) => void;
   onClose: () => void;
-}
-
-function RecentCard({
-  doc,
-  onOpen,
-}: {
-  doc: DocumentSummary;
-  onOpen: () => void;
-}) {
-  const folder =
-    doc.rel_path.includes("/")
-      ? doc.rel_path.slice(0, doc.rel_path.lastIndexOf("/"))
-      : "";
-  const opened = new Date(doc.last_opened_at);
-  const sinceOpened = relativeTime(opened);
-
-  return (
-    <li className="flex">
-      <button
-        className="w-full flex gap-3 items-start text-left bg-surface-elevated border border-border rounded-card p-3 text-fg cursor-pointer transition-colors hover:border-accent hover:bg-accent/5"
-        onClick={onOpen}
-        title={doc.rel_path}
-      >
-        <Icon path={mdiFileDocumentOutline} size={1.1} />
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium truncate">{doc.name}</div>
-          {folder && (
-            <div className="text-xs text-fg-muted font-mono truncate mt-0.5">
-              {folder}
-            </div>
-          )}
-          <div className="text-xs text-fg-muted mt-1">
-            opened {sinceOpened}
-            {doc.context_paths.length > 0 && (
-              <>
-                {" "}· {doc.context_paths.length} context doc
-                {doc.context_paths.length === 1 ? "" : "s"}
-              </>
-            )}
-          </div>
-        </div>
-      </button>
-    </li>
-  );
-}
-
-function relativeTime(d: Date): string {
-  const now = Date.now();
-  const ms = now - d.getTime();
-  if (ms < 0) return d.toLocaleString();
-  const sec = Math.floor(ms / 1000);
-  if (sec < 60) return "just now";
-  const min = Math.floor(sec / 60);
-  if (min < 60) return `${min} min ago`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr} hour${hr === 1 ? "" : "s"} ago`;
-  const day = Math.floor(hr / 24);
-  if (day < 30) return `${day} day${day === 1 ? "" : "s"} ago`;
-  return d.toLocaleDateString();
 }
 
 function ContextPickerModal({
