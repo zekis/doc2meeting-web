@@ -222,6 +222,74 @@ class TestRecordUsage:
         record = record_usage(session, test_user, document_id=42, page_count=3)
         assert record.document_id == 42
 
+    @patch("app.billing.usage.STRIPE_SECRET_KEY", "sk_test_xxx")
+    @patch("app.billing.usage.stripe.Subscription.retrieve")
+    def test_metered_usage_reports_to_stripe(self, mock_retrieve, session, api_user):
+        """API tier usage should report to Stripe metered billing."""
+        sub = Subscription(
+            user_id=api_user.id,
+            stripe_customer_id="cus_test_api",
+            stripe_subscription_id="sub_test_123",
+            stripe_price_id="price_api_monthly",
+            tier="api",
+            status="active",
+            current_period_start=datetime.utcnow() - timedelta(days=15),
+            current_period_end=datetime.utcnow() + timedelta(days=15),
+        )
+        session.add(sub)
+        session.commit()
+
+        mock_create_usage = MagicMock()
+        mock_retrieve.return_value = {
+            "items": {
+                "data": [
+                    {"id": "si_metered_123", "price": {"id": "price_api_metered"}},
+                ]
+            }
+        }
+
+        with patch("app.billing.usage.stripe.SubscriptionItem") as mock_si_class:
+            mock_si_class.create_usage_record = mock_create_usage
+            record = record_usage(session, api_user, page_count=10, action="doc_process")
+
+        mock_retrieve.assert_called_once_with("sub_test_123")
+        mock_create_usage.assert_called_once_with(
+            "si_metered_123",
+            quantity=10,
+            timestamp=int(record.created_at.timestamp()),
+        )
+
+    @patch("app.billing.usage.STRIPE_SECRET_KEY", "sk_test_xxx")
+    @patch("app.billing.usage.stripe.Subscription.retrieve")
+    def test_metered_usage_failure_logged_not_swallowed(
+        self, mock_retrieve, session, api_user, caplog
+    ):
+        """Failed metered billing should log an ALERT, not silently swallow."""
+        sub = Subscription(
+            user_id=api_user.id,
+            stripe_customer_id="cus_test_api",
+            stripe_subscription_id="sub_test_fail",
+            stripe_price_id="price_api_monthly",
+            tier="api",
+            status="active",
+            current_period_start=datetime.utcnow() - timedelta(days=15),
+            current_period_end=datetime.utcnow() + timedelta(days=15),
+        )
+        session.add(sub)
+        session.commit()
+
+        mock_retrieve.side_effect = Exception("Stripe API error")
+
+        import logging
+        with caplog.at_level(logging.ERROR):
+            record = record_usage(session, api_user, page_count=5, action="doc_process")
+
+        # Record should still be created
+        assert record.id is not None
+        # But the error should be logged with ALERT
+        assert "ALERT" in caplog.text
+        assert "Failed to report metered usage" in caplog.text
+
 
 # ---------------------------------------------------------------------------
 # Billing API endpoint tests
@@ -254,17 +322,17 @@ class TestBillingEndpoints:
         resp = client.get("/api/billing/portal", headers=_auth(test_user))
         assert resp.status_code == 400
 
-    @patch("app.billing.STRIPE_SECRET_KEY", "sk_test_xxx")
-    @patch("app.billing.stripe.billing_portal.Session.create")
+    @patch("app.billing.checkout.STRIPE_SECRET_KEY", "sk_test_xxx")
+    @patch("app.billing.checkout.stripe.billing_portal.Session.create")
     def test_get_billing_portal_with_customer(self, mock_portal, client, pro_user):
         mock_portal.return_value = MagicMock(url="https://billing.stripe.com/session/test")
         resp = client.get("/api/billing/portal", headers=_auth(pro_user))
         assert resp.status_code == 200
         assert "stripe.com" in resp.json()["portal_url"]
 
-    @patch("app.billing.STRIPE_SECRET_KEY", "sk_test_xxx")
-    @patch("app.billing.stripe.checkout.Session.create")
-    @patch("app.billing.stripe.Customer.create")
+    @patch("app.billing.checkout.STRIPE_SECRET_KEY", "sk_test_xxx")
+    @patch("app.billing.checkout.stripe.checkout.Session.create")
+    @patch("app.billing.checkout.stripe.Customer.create")
     def test_checkout_pro(self, mock_customer, mock_checkout, client, test_user):
         mock_customer.return_value = MagicMock(id="cus_new_123")
         mock_checkout.return_value = MagicMock(url="https://checkout.stripe.com/test")
@@ -275,6 +343,46 @@ class TestBillingEndpoints:
         )
         assert resp.status_code == 200
         assert "stripe.com" in resp.json()["checkout_url"]
+
+    @patch("app.billing.checkout.STRIPE_SECRET_KEY", "sk_test_xxx")
+    @patch("app.billing.checkout.stripe.checkout.Session.create")
+    @patch("app.billing.checkout.stripe.Customer.create")
+    def test_checkout_api_tier(self, mock_customer, mock_checkout, client, test_user):
+        """API tier checkout should include metered price component."""
+        mock_customer.return_value = MagicMock(id="cus_new_456")
+        mock_checkout.return_value = MagicMock(url="https://checkout.stripe.com/api-test")
+
+        resp = client.post(
+            "/api/checkout",
+            json={"tier": "api"},
+            headers=_auth(test_user),
+        )
+        assert resp.status_code == 200
+
+        # Verify the checkout was called with 2 line items (base + metered)
+        call_kwargs = mock_checkout.call_args[1]
+        assert len(call_kwargs["line_items"]) == 2
+        assert call_kwargs["metadata"]["tier"] == "api"
+
+    @patch("app.billing.checkout.STRIPE_SECRET_KEY", "sk_test_xxx")
+    @patch("app.billing.checkout.stripe.checkout.Session.create")
+    @patch("app.billing.checkout.stripe.Customer.create")
+    def test_checkout_no_client_redirect_urls(self, mock_customer, mock_checkout, client, test_user):
+        """Checkout should use server-side redirect URLs only (open redirect fix)."""
+        mock_customer.return_value = MagicMock(id="cus_new_789")
+        mock_checkout.return_value = MagicMock(url="https://checkout.stripe.com/test")
+
+        resp = client.post(
+            "/api/checkout",
+            json={"tier": "pro"},
+            headers=_auth(test_user),
+        )
+        assert resp.status_code == 200
+
+        # Verify the Stripe call used server-side URLs, not client-supplied ones
+        call_kwargs = mock_checkout.call_args[1]
+        assert "localhost" in call_kwargs["success_url"] or "billing" in call_kwargs["success_url"]
+        assert "localhost" in call_kwargs["cancel_url"] or "billing" in call_kwargs["cancel_url"]
 
     def test_checkout_invalid_tier(self, client, test_user):
         resp = client.post(
@@ -333,9 +441,9 @@ class TestStripeWebhook:
         # No webhook secret → 503
         assert resp.status_code == 503
 
-    @patch("app.billing.STRIPE_WEBHOOK_SECRET", "whsec_test")
-    @patch("app.billing.stripe.Webhook.construct_event")
-    @patch("app.billing.stripe.Subscription.retrieve")
+    @patch("app.billing.webhooks.STRIPE_WEBHOOK_SECRET", "whsec_test")
+    @patch("app.billing.webhooks.stripe.Webhook.construct_event")
+    @patch("app.billing.webhooks.stripe.Subscription.retrieve")
     def test_webhook_checkout_completed(self, mock_retrieve, mock_construct, client, session, test_user):
         """checkout.session.completed should create subscription and upgrade tier."""
         sub_id = f"sub_{uuid.uuid4()}"
@@ -376,8 +484,151 @@ class TestStripeWebhook:
         session.refresh(test_user)
         assert test_user.tier == "pro"
 
-    @patch("app.billing.STRIPE_WEBHOOK_SECRET", "whsec_test")
-    @patch("app.billing.stripe.Webhook.construct_event")
+    @patch("app.billing.webhooks.STRIPE_WEBHOOK_SECRET", "whsec_test")
+    @patch("app.billing.webhooks.stripe.Webhook.construct_event")
+    @patch("app.billing.webhooks.stripe.Subscription.retrieve")
+    def test_webhook_checkout_idempotent(self, mock_retrieve, mock_construct, client, session, test_user):
+        """Duplicate checkout.session.completed events should not cause errors."""
+        sub_id = f"sub_{uuid.uuid4()}"
+        now = datetime.utcnow()
+
+        event = {
+            "type": "checkout.session.completed",
+            "data": {
+                "object": {
+                    "metadata": {"user_id": test_user.id, "tier": "pro"},
+                    "subscription": sub_id,
+                    "customer": "cus_test_idempotent",
+                }
+            },
+        }
+        mock_construct.return_value = event
+        mock_retrieve.return_value = {
+            "items": {"data": [{"price": {"id": "price_pro_monthly"}}]},
+            "current_period_start": int(now.timestamp()),
+            "current_period_end": int((now + timedelta(days=30)).timestamp()),
+        }
+
+        # First webhook call
+        resp1 = client.post(
+            "/api/webhooks/stripe",
+            content=b"signed-payload",
+            headers={"stripe-signature": "t=123,v1=abc"},
+        )
+        assert resp1.status_code == 200
+
+        # Second (duplicate) webhook call — should NOT fail with IntegrityError
+        mock_construct.return_value = event
+        resp2 = client.post(
+            "/api/webhooks/stripe",
+            content=b"signed-payload",
+            headers={"stripe-signature": "t=123,v1=abc"},
+        )
+        assert resp2.status_code == 200
+
+        # Verify only one subscription exists
+        from sqlmodel import select
+        subs = session.exec(
+            select(Subscription).where(Subscription.stripe_subscription_id == sub_id)
+        ).all()
+        assert len(subs) == 1
+
+    @patch("app.billing.webhooks.STRIPE_WEBHOOK_SECRET", "whsec_test")
+    @patch("app.billing.webhooks.stripe.Webhook.construct_event")
+    def test_webhook_subscription_updated(self, mock_construct, client, session, pro_user):
+        """subscription.updated should update period and detect tier changes."""
+        sub_id = f"sub_{uuid.uuid4()}"
+        sub = Subscription(
+            user_id=pro_user.id,
+            stripe_customer_id="cus_test_pro",
+            stripe_subscription_id=sub_id,
+            stripe_price_id="price_pro_monthly",
+            tier="pro",
+            status="active",
+            current_period_start=datetime.utcnow() - timedelta(days=15),
+            current_period_end=datetime.utcnow() + timedelta(days=15),
+        )
+        session.add(sub)
+        session.commit()
+
+        # Simulate upgrade from pro to api
+        now = datetime.utcnow()
+        mock_construct.return_value = {
+            "type": "customer.subscription.updated",
+            "data": {
+                "object": {
+                    "id": sub_id,
+                    "status": "active",
+                    "current_period_start": int(now.timestamp()),
+                    "current_period_end": int((now + timedelta(days=30)).timestamp()),
+                    "items": {"data": [{"price": {"id": "price_api_monthly"}}]},
+                }
+            },
+        }
+
+        resp = client.post(
+            "/api/webhooks/stripe",
+            content=b"signed-payload",
+            headers={"stripe-signature": "t=123,v1=abc"},
+        )
+        assert resp.status_code == 200
+
+        # Verify subscription was updated
+        session.refresh(sub)
+        assert sub.tier == "api"
+        assert sub.stripe_price_id == "price_api_monthly"
+
+        # Verify user tier was upgraded
+        session.refresh(pro_user)
+        assert pro_user.tier == "api"
+
+    @patch("app.billing.webhooks.STRIPE_WEBHOOK_SECRET", "whsec_test")
+    @patch("app.billing.webhooks.stripe.Webhook.construct_event")
+    def test_webhook_subscription_updated_downgrade(self, mock_construct, client, session, api_user):
+        """subscription.updated with pro price should downgrade from api to pro."""
+        sub_id = f"sub_{uuid.uuid4()}"
+        sub = Subscription(
+            user_id=api_user.id,
+            stripe_customer_id="cus_test_api",
+            stripe_subscription_id=sub_id,
+            stripe_price_id="price_api_monthly",
+            tier="api",
+            status="active",
+            current_period_start=datetime.utcnow() - timedelta(days=15),
+            current_period_end=datetime.utcnow() + timedelta(days=15),
+        )
+        session.add(sub)
+        session.commit()
+
+        now = datetime.utcnow()
+        mock_construct.return_value = {
+            "type": "customer.subscription.updated",
+            "data": {
+                "object": {
+                    "id": sub_id,
+                    "status": "active",
+                    "current_period_start": int(now.timestamp()),
+                    "current_period_end": int((now + timedelta(days=30)).timestamp()),
+                    "items": {"data": [{"price": {"id": "price_pro_monthly"}}]},
+                }
+            },
+        }
+
+        resp = client.post(
+            "/api/webhooks/stripe",
+            content=b"signed-payload",
+            headers={"stripe-signature": "t=123,v1=abc"},
+        )
+        assert resp.status_code == 200
+
+        session.refresh(sub)
+        assert sub.tier == "pro"
+
+        session.refresh(api_user)
+        assert api_user.tier == "pro"
+
+    @patch("app.billing.webhooks.STRIPE_WEBHOOK_SECRET", "whsec_test")
+    @patch("app.billing.webhooks.stripe.Webhook.construct_event")
     def test_webhook_subscription_deleted(self, mock_construct, client, session, pro_user):
         """subscription.deleted should downgrade to free."""
         sub_id = f"sub_{uuid.uuid4()}"
@@ -410,8 +661,8 @@ class TestStripeWebhook:
         session.refresh(pro_user)
         assert pro_user.tier == "free"
 
-    @patch("app.billing.STRIPE_WEBHOOK_SECRET", "whsec_test")
-    @patch("app.billing.stripe.Webhook.construct_event")
+    @patch("app.billing.webhooks.STRIPE_WEBHOOK_SECRET", "whsec_test")
+    @patch("app.billing.webhooks.stripe.Webhook.construct_event")
     def test_webhook_payment_failed(self, mock_construct, client, session, pro_user):
         """invoice.payment_failed should mark subscription past_due."""
         sub = Subscription(
@@ -442,8 +693,8 @@ class TestStripeWebhook:
         session.refresh(sub)
         assert sub.status == "past_due"
 
-    @patch("app.billing.STRIPE_WEBHOOK_SECRET", "whsec_test")
-    @patch("app.billing.stripe.Webhook.construct_event")
+    @patch("app.billing.webhooks.STRIPE_WEBHOOK_SECRET", "whsec_test")
+    @patch("app.billing.webhooks.stripe.Webhook.construct_event")
     def test_webhook_invalid_signature(self, mock_construct, client):
         """Invalid signature should return 400."""
         import stripe as stripe_mod

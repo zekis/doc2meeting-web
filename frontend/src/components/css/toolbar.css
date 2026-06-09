@@ -1,0 +1,256 @@
+/* ------------- Banners / toolbar ------------- */
+
+.banner {
+  padding: 0.5rem 1rem;
+  font-size: 0.85rem;
+  border-bottom: 1px solid var(--border);
+}
+.banner-warn {
+  background: rgba(251, 191, 36, 0.12);
+  color: var(--warn);
+}
+
+.doc-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem 0.6rem;
+  background: var(--bg-pane);
+  border-bottom: 1px solid var(--border);
+  min-height: 2.6rem;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+.toolbar-msg {
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.toolbar-stat {
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 0.4rem;
+}
+.toolbar-cost {
+  color: var(--accent);
+  font-weight: 600;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.toolbar-cost-est {
+  color: var(--fg-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.para-mobile-text { display: none; }
+
+.section-anchor {
+  grid-column: 1 / -1;
+  height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  scroll-margin-top: 60px;
+}
+
+/* ---- Mobile / narrow-viewport overrides for DocReview ---- */
+@media (max-width: 767px) {
+  .review-grid-2col {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100%;
+    overflow: hidden;
+  }
+  .pane-left { display: none !important; }
+  .pane-main {
+    flex: 1;
+    width: 100%;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .para-grid {
+    display: block !important;
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    padding-bottom: 2rem;
+  }
+  .col-head-mark,
+  .para-cell-mark,
+  .bubble-spacer { display: none !important; }
+  .col-head-bubble { display: block; }
+  .para-cell-bubble {
+    display: block;
+    border-top: 1px solid var(--border);
+  }
+
+  .md-heading-mark {
+    padding: 1rem 0.75rem 0.4rem;
+    width: 100%;
+  }
+
+  .para-mobile-text {
+    display: block;
+    padding: 0.5rem 0.65rem;
+    margin: -0.1rem -0.1rem 0.5rem;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    color: var(--fg);
+  }
+  .para-mobile-text p:first-child { margin-top: 0; }
+  .para-mobile-text p:last-child { margin-bottom: 0; }
+  .para-mobile-text table {
+    width: 100%;
+    font-size: 0.78rem;
+    border-collapse: collapse;
+  }
+  .para-mobile-text th, .para-mobile-text td {
+    border: 1px solid var(--border);
+    padding: 0.25rem 0.35rem;
+  }
+  .para-mobile-text code {
+    background: var(--bg-elev);
+    padding: 0.05rem 0.25rem;
+    border-radius: 3px;
+    font-size: 0.85em;
+  }
+
+  .para-cell {
+    padding: 0.5rem 0.6rem;
+    min-width: 0;
+    overflow-wrap: break-word;
+  }
+  .bubble {
+    padding: 0.55rem;
+    overflow: hidden;
+  }
+  .speaker-panel { overflow: hidden; }
+  .speaker-panel audio {
+    width: 100%;
+    max-width: 100%;
+    height: 30px;
+  }
+
+  .doc-toolbar {
+    padding: 0.35rem 0.5rem;
+    gap: 0.3rem;
+    font-size: 0.85rem;
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+  .toolbar-divider { display: none; }
+  .toolbar-stat {
+    margin-left: 0;
+    width: 100%;
+    order: 99;
+    padding: 0;
+  }
+  .toolbar-cost-est { display: none; }
+  .toolbar-msg { font-size: 0.75rem; }
+  .col-head { padding: 0.45rem 0.75rem; }
+}
+
+.toolbar-batch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--accent);
+  background: rgba(78, 205, 196, 0.1);
+  padding: 0.25rem 0.6rem;
+  border-radius: 4px;
+}
+.toolbar-divider {
+  display: inline-block;
+  width: 1px;
+  height: 1.5rem;
+  background: var(--border);
+  margin: 0 0.25rem;
+}
+.toolbar-msg-err { color: var(--bad); }
+.player-status {
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  background: var(--bg-elev);
+}
+.player-status.player-playing { color: var(--ok); }
+.player-status.player-loading { color: var(--warn); }
+.player-status.player-paused { color: var(--fg-muted); }
+.player-status.player-idle,
+.player-status.player-finished { color: var(--fg-muted); }
+.player-prepared { color: var(--fg-muted); }
+.player-segment {
+  color: var(--warn);
+  text-transform: capitalize;
+}
+.toolbar-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+  user-select: none;
+  cursor: pointer;
+}
+.toolbar-checkbox input { accent-color: var(--accent); }
+.toolbar-checkbox-disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Mic state indicator dot */
+.mic-dot {
+  display: inline-block;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  margin-right: 0.25rem;
+  background: var(--fg-muted);
+}
+.mic-dot-starting { background: var(--warn); }
+.mic-dot-listening {
+  background: var(--ok);
+  box-shadow: 0 0 0 0 rgba(74, 222, 128, 0.6);
+  animation: mic-pulse 2s infinite;
+}
+.mic-dot-recording {
+  background: var(--bad);
+  box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.6);
+  animation: mic-pulse 1s infinite;
+}
+.mic-dot-processing {
+  background: var(--accent);
+  animation: mic-pulse 0.8s infinite;
+}
+.mic-dot-error { background: var(--bad); }
+@keyframes mic-pulse {
+  0% { box-shadow: 0 0 0 0 currentColor; opacity: 1; }
+  70% { box-shadow: 0 0 0 6px transparent; opacity: 0.7; }
+  100% { box-shadow: 0 0 0 0 transparent; opacity: 1; }
+}
+
+.speaker-panel.narrator-reply {
+  border-left-color: var(--ok);
+  background: rgba(74, 222, 128, 0.05);
+}
+.speaker-panel.narrator-reply .speaker-label { color: var(--ok); }
+
+.para-cell.para-now-playing {
+  background: rgba(78, 205, 196, 0.12);
+  box-shadow: inset 3px 0 0 var(--accent);
+}

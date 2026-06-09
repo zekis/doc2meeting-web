@@ -1,0 +1,104 @@
+/* ------------- File tree ------------- */
+
+.file-tree {
+  padding: 0.5rem 0;
+  font-size: 0.9rem;
+}
+.file-tree-root {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-muted);
+}
+.file-tree-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.file-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--fg);
+  padding: 0.25rem 0.5rem;
+  border-radius: 3px;
+  font-size: 0.88rem;
+}
+.file-tree-folder-row {
+  cursor: pointer;
+}
+.file-tree-folder-row:hover {
+  background: var(--bg-elev);
+}
+.file-tree-file-row {
+  gap: 0.4rem;
+}
+.file-tree-file-row.active {
+  background: rgba(78, 205, 196, 0.18);
+}
+.file-tree-name-btn {
+  flex: 1;
+  background: transparent;
+  border: none;
+  padding: 0;
+  text-align: left;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.file-tree-name-btn:hover {
+  color: var(--accent);
+}
+.file-tree-chev {
+  width: 0.85rem;
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+}
+.file-tree-icon {
+  font-size: 0.85rem;
+}
+.file-tree-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.file-tree-ctx {
+  accent-color: var(--accent);
+}
+
+/* .docx rows: dimmed name + convert chip */
+.file-tree-file-row.is-docx .file-tree-name-btn {
+  color: var(--fg-muted);
+  cursor: default;
+}
+.file-tree-file-row.is-docx .file-tree-name-btn:hover {
+  color: var(--fg-muted);
+}
+.file-tree-convert-btn {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  color: var(--accent);
+  padding: 0.1rem 0.45rem;
+  font-size: 0.72rem;
+  border-radius: 3px;
+  cursor: pointer;
+  margin-left: 0.35rem;
+  white-space: nowrap;
+}
+.file-tree-convert-btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
+}
+.file-tree-convert-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
