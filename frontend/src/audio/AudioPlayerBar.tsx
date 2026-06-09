@@ -99,7 +99,7 @@ export function AudioPlayerBar() {
           <button
             className="audio-player-btn audio-player-btn-sm"
             onClick={prevSection}
-            title="Previous section"
+            title="Previous paragraph"
           >
             <Icon path={mdiSkipBackward} size={0.8} />
           </button>
@@ -129,7 +129,7 @@ export function AudioPlayerBar() {
           <button
             className="audio-player-btn audio-player-btn-sm"
             onClick={nextSection}
-            title="Next section"
+            title="Next paragraph"
           >
             <Icon path={mdiSkipForward} size={0.8} />
           </button>

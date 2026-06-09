@@ -4,7 +4,6 @@ import {
   mdiFileWordBox,
   mdiLanguageMarkdown,
   mdiFilePdfBox,
-  mdiPlus,
 } from "@mdi/js";
 import { api } from "../api";
 import type { UploadItem } from "./UploadQueue";
@@ -214,15 +213,6 @@ export const DropZone = forwardRef<DropZoneHandle, DropZoneProps>(function DropZ
         onChange={handleFileInput}
         className="hidden"
       />
-
-      {/* FAB (mobile only) — desktop/tablet uses the Upload nav tab instead */}
-      <button
-        onClick={openFilePicker}
-        className="fixed tablet:hidden bottom-16 right-4 z-40 w-14 h-14 rounded-full bg-accent text-accent-fg shadow-lg flex items-center justify-center active:scale-95 transition-transform"
-        title="Upload files"
-      >
-        <Icon path={mdiPlus} size={1.2} />
-      </button>
 
       {/* Full-screen drag overlay */}
       {dragging && (

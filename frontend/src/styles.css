@@ -1545,6 +1545,7 @@ button.link-btn {
 .audio-player-controls {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 0.5rem;
 }
 
@@ -1619,20 +1620,22 @@ button.link-btn {
 }
 
 .audio-player-speed-pill {
-  background: var(--bg-elev);
-  border: 1px solid var(--border);
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  justify-content: flex-end;
+  background: transparent;
+  border: none;
   color: var(--accent);
   font-size: 0.75rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  padding: 0.2rem 0.6rem;
-  border-radius: var(--radius-pill, 24px);
+  padding: 0.2rem 0;
   cursor: pointer;
   white-space: nowrap;
-  transition: border-color 0.15s;
 }
 .audio-player-speed-pill:hover {
-  border-color: var(--accent);
+  color: var(--fg);
 }
 
 /* Mobile tweaks */

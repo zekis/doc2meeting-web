@@ -40,12 +40,19 @@ export function PlayerPage({ onBack }: PlayerPageProps) {
 
   const contentRef = useRef<HTMLDivElement>(null);
   const paragraphRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const hasScrolledRef = useRef(false);
 
-  // Auto-scroll to current paragraph
+  // Auto-scroll to current paragraph (skip initial mount to avoid layout glitch)
   useEffect(() => {
     const key = `${currentSectionIdx}-${currentParagraphIdx}`;
     const el = paragraphRefs.current.get(key);
-    if (el) {
+    if (!el) return;
+
+    if (!hasScrolledRef.current) {
+      // First render — instant scroll, no animation to avoid visible reflow
+      hasScrolledRef.current = true;
+      el.scrollIntoView({ behavior: "instant", block: "center" });
+    } else {
       el.scrollIntoView({ behavior: "smooth", block: "center" });
     }
   }, [currentSectionIdx, currentParagraphIdx]);

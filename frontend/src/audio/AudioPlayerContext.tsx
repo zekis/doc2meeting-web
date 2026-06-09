@@ -552,16 +552,58 @@ export function AudioPlayerProvider({ children }: Props) {
     nextSection: () => {
       const d = docRef.current;
       if (!d) return;
-      const idx = d.sections.findIndex((s) => s.idx === sectionIdxRef.current);
-      const next = d.sections[idx + 1];
+      const secIdx = sectionIdxRef.current;
+      const sec = d.sections.find((s) => s.idx === secIdx);
+      if (!sec) return;
+
+      const paraIdx = paragraphIdxRef.current;
+      // If there are more paragraphs in this section, advance to the next one
+      if (paraIdx + 1 < sec.paragraphs.length) {
+        epochRef.current++;
+        const audio = audioRef.current;
+        if (audio) { audio.onended = null; audio.pause(); }
+        prefetchTriggeredRef.current = null;
+        const epoch = ++epochRef.current;
+        const nextPara = paraIdx + 1;
+        setCurrentParagraphIdx(nextPara);
+        paragraphIdxRef.current = nextPara;
+        setProgress(0);
+        setCurrentTime(0);
+        playParagraph(d, secIdx, nextPara, epoch);
+        return;
+      }
+
+      // Last paragraph — jump to next section
+      const listIdx = d.sections.findIndex((s) => s.idx === secIdx);
+      const next = d.sections[listIdx + 1];
       if (next) actions.jumpToSection(next.idx);
     },
 
     prevSection: () => {
       const d = docRef.current;
       if (!d) return;
-      const idx = d.sections.findIndex((s) => s.idx === sectionIdxRef.current);
-      const prev = d.sections[idx - 1];
+      const secIdx = sectionIdxRef.current;
+      const paraIdx = paragraphIdxRef.current;
+
+      // If not on the first paragraph, go to previous paragraph
+      if (paraIdx > 0) {
+        epochRef.current++;
+        const audio = audioRef.current;
+        if (audio) { audio.onended = null; audio.pause(); }
+        prefetchTriggeredRef.current = null;
+        const epoch = ++epochRef.current;
+        const prevPara = paraIdx - 1;
+        setCurrentParagraphIdx(prevPara);
+        paragraphIdxRef.current = prevPara;
+        setProgress(0);
+        setCurrentTime(0);
+        playParagraph(d, secIdx, prevPara, epoch);
+        return;
+      }
+
+      // First paragraph — jump to previous section
+      const listIdx = d.sections.findIndex((s) => s.idx === secIdx);
+      const prev = d.sections[listIdx - 1];
       if (prev) actions.jumpToSection(prev.idx);
     },
 
