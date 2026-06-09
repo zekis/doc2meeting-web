@@ -400,6 +400,45 @@ export const api = {
 };
 
 // ---------------------------------------------------------------------------
+// Billing API
+// ---------------------------------------------------------------------------
+
+export interface BillingInfo {
+  tier: string;
+  stripe_customer_id: string | null;
+  subscription_status: string | null;
+  current_period_start: string | null;
+  current_period_end: string | null;
+  docs_used: number;
+  docs_limit: number | null;
+  pages_used: number;
+  pages_limit_per_doc: number | null;
+}
+
+export interface UsageInfo {
+  docs_used: number;
+  docs_limit: number | null;
+  pages_used: number;
+  pages_limit_per_doc: number | null;
+  period_start: string | null;
+  period_end: string | null;
+}
+
+export const billingApi = {
+  getBilling: async (): Promise<BillingInfo> =>
+    jsonOrThrow(await authFetch("/api/billing")),
+
+  getUsage: async (): Promise<UsageInfo> =>
+    jsonOrThrow(await authFetch("/api/usage")),
+
+  createCheckout: async (tier: string): Promise<{ checkout_url: string }> =>
+    sendJson("POST", "/api/checkout", { tier }),
+
+  getPortalUrl: async (): Promise<{ portal_url: string }> =>
+    jsonOrThrow(await authFetch("/api/billing/portal")),
+};
+
+// ---------------------------------------------------------------------------
 // Admin API
 // ---------------------------------------------------------------------------
 

@@ -7,10 +7,11 @@ import {
   mdiCogOutline,
   mdiLogout,
   mdiShieldAccountOutline,
+  mdiAccountCircleOutline,
 } from "@mdi/js";
 import { useAuth } from "../auth/AuthContext";
 
-export type NavTab = "library" | "upload" | "player" | "settings" | "admin";
+export type NavTab = "library" | "upload" | "player" | "settings" | "admin" | "account";
 
 interface LayoutProps {
   children: ReactNode;
@@ -22,6 +23,7 @@ const NAV_ITEMS: Array<{ key: NavTab; icon: string; label: string; adminOnly?: b
   { key: "library", icon: mdiBookOpenPageVariant, label: "Library" },
   { key: "upload", icon: mdiCloudUploadOutline, label: "Upload" },
   { key: "player", icon: mdiPlayCircleOutline, label: "Player" },
+  { key: "account", icon: mdiAccountCircleOutline, label: "Account" },
   { key: "settings", icon: mdiCogOutline, label: "Settings" },
   { key: "admin", icon: mdiShieldAccountOutline, label: "Admin", adminOnly: true },
 ];
@@ -69,8 +71,11 @@ export function Layout({ children, activeTab = "library", onNavigate }: LayoutPr
 
         <div className="flex items-center gap-2 ml-auto">
           {user && (
-            <span className="hidden phone:inline text-fg-muted text-sm truncate max-w-[120px]">
+            <span className="hidden phone:inline flex items-center gap-1.5 text-fg-muted text-sm truncate max-w-[200px]">
               {user.name}
+              <span className="inline-flex px-1.5 py-0.5 rounded-pill bg-accent/15 text-accent text-[0.6rem] font-bold uppercase tracking-wide leading-none">
+                {user.tier}
+              </span>
             </span>
           )}
           <button

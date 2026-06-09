@@ -19,6 +19,7 @@ import { DocumentLibrary } from "./components/DocumentLibrary";
 import { UploadView } from "./components/UploadView";
 import { WelcomeScreen, hasCompletedOnboarding } from "./pages/Welcome";
 import { AdminDashboard } from "./pages/AdminDashboard";
+import { AccountPage } from "./pages/AccountPage";
 import { useAudioPlayer, PlayerPage, MiniPlayer } from "./audio";
 import { DropZone } from "./components/DropZone";
 import type { DropZoneHandle } from "./components/DropZone";
@@ -218,6 +219,9 @@ export function App() {
               setShowOnboarding(false);
             }}
           />
+        ) : activeTab === "account" ? (
+          /* ---- Account / Subscription ---- */
+          <AccountPage onBack={handleBackToLibrary} />
         ) : activeTab === "admin" ? (
           /* ---- Admin Dashboard ---- */
           <AdminDashboard onBack={handleBackToLibrary} />
