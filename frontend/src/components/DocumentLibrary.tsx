@@ -8,8 +8,10 @@ import {
   mdiSortCalendarDescending,
   mdiSortAlphabeticalAscending,
   mdiFileUploadOutline,
+  mdiLoading,
 } from "@mdi/js";
 import type { DocumentSummary } from "../api";
+import type { UploadItem } from "./UploadQueue";
 
 type SortMode = "recent" | "alpha";
 
@@ -17,6 +19,7 @@ interface DocumentLibraryProps {
   documents: DocumentSummary[];
   loading: boolean;
   onOpenDocument: (relPath: string) => void;
+  uploadItems?: UploadItem[];
 }
 
 /** Derive file extension for type-based card styling. */
@@ -50,7 +53,7 @@ function relativeTime(d: Date): string {
   return d.toLocaleDateString();
 }
 
-export function DocumentLibrary({ documents, loading, onOpenDocument }: DocumentLibraryProps) {
+export function DocumentLibrary({ documents, loading, onOpenDocument, uploadItems = [] }: DocumentLibraryProps) {
   const [sort, setSort] = useState<SortMode>("recent");
 
   const sorted = useMemo(() => {
@@ -131,6 +134,13 @@ export function DocumentLibrary({ documents, loading, onOpenDocument }: Document
 
       {/* Card grid */}
       <div className="grid grid-cols-1 phone:grid-cols-2 tablet:grid-cols-3 laptop:grid-cols-4 gap-4">
+        {/* Processing cards for active uploads */}
+        {uploadItems
+          .filter((i) => i.status !== "error")
+          .filter((i) => i.status !== "done" || !sorted.some((d) => d.rel_path === i.resultRelPath))
+          .map((item) => (
+            <ProcessingCard key={item.id} item={item} />
+          ))}
         {sorted.map((doc) => (
           <DocumentCard
             key={doc.id}
@@ -180,6 +190,50 @@ function DocumentCard({ doc, onOpen }: { doc: DocumentSummary; onOpen: () => voi
         </div>
       </div>
     </button>
+  );
+}
+
+function ProcessingCard({ item }: { item: UploadItem }) {
+  const fileType = getFileType(item.file.name);
+  const config = TYPE_CONFIG[fileType];
+
+  return (
+    <div className="flex flex-col bg-surface border border-accent/30 rounded-card overflow-hidden opacity-80">
+      {/* Thumbnail */}
+      <div className={`${config.color} flex items-center justify-center h-28 relative`}>
+        <Icon path={config.icon} size={2} className="text-white/50" />
+        <span className="absolute top-2 right-2 text-[0.6rem] font-bold uppercase tracking-wider text-white/60 bg-black/20 px-1.5 py-0.5 rounded">
+          {config.label}
+        </span>
+        {/* Processing badge */}
+        <span className="absolute bottom-2 left-2 inline-flex items-center gap-1 text-[0.65rem] font-medium px-1.5 py-0.5 rounded-full bg-warn/20 text-warn">
+          <Icon path={mdiLoading} size={0.4} className="animate-spin" />
+          Processing
+        </span>
+        {/* Progress bar overlay */}
+        {item.status === "uploading" && (
+          <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/30">
+            <div
+              className="h-full bg-accent transition-all duration-300"
+              style={{ width: `${item.progress}%` }}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Card body */}
+      <div className="flex flex-col gap-1.5 p-3 flex-1">
+        <h3 className="text-sm font-medium leading-snug line-clamp-2 text-fg-muted">
+          {item.file.name}
+        </h3>
+        <div className="mt-auto text-xs text-fg-muted">
+          {item.status === "uploading" && `Uploading ${item.progress}%`}
+          {item.status === "converting" && "Converting..."}
+          {item.status === "queued" && "Queued"}
+          {item.status === "done" && "Processing..."}
+        </div>
+      </div>
+    </div>
   );
 }
 

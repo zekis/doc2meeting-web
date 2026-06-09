@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Icon from "@mdi/react";
 import {
   mdiArrowLeft,
@@ -17,6 +17,11 @@ import { SettingsModal } from "./components/SettingsModal";
 import { Layout } from "./components/Layout";
 import { DocumentLibrary } from "./components/DocumentLibrary";
 import { WelcomeScreen, hasCompletedOnboarding } from "./pages/Welcome";
+import { useAudioPlayer, PlayerPage, MiniPlayer } from "./audio";
+import { DropZone } from "./components/DropZone";
+import type { UploadItem } from "./components/UploadQueue";
+import { UploadQueue } from "./components/UploadQueue";
+import { ToastContainer, useToast } from "./components/Toast";
 
 export function App() {
   const [tree, setTree] = useState<TreeResponse | null>(null);
@@ -28,6 +33,11 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"library" | "upload" | "player" | "settings">("library");
   const [showOnboarding, setShowOnboarding] = useState(() => !hasCompletedOnboarding());
+  const audioPlayer = useAudioPlayer();
+
+  // Upload state
+  const [uploadItems, setUploadItems] = useState<UploadItem[]>([]);
+  const { toasts, dismiss: dismissToast, toast } = useToast();
 
   const refreshTree = async () => {
     try {
@@ -55,8 +65,10 @@ export function App() {
     setLoading(true);
     setError(null);
     try {
-      setOpenDoc(await api.openDocument(relPath));
+      const doc = await api.openDocument(relPath);
+      setOpenDoc(doc);
       setActiveTab("player");
+      audioPlayer.loadDocument(doc, true);
       refreshRecents();
     } catch (e) {
       setError((e as Error).message);
@@ -89,8 +101,10 @@ export function App() {
     try {
       const result = await api.convertDocx(relPath);
       await refreshTree();
-      setOpenDoc(await api.openDocument(result.saved_rel_path));
+      const doc = await api.openDocument(result.saved_rel_path);
+      setOpenDoc(doc);
       setActiveTab("player");
+      audioPlayer.loadDocument(doc, true);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -103,74 +117,111 @@ export function App() {
       setSettingsOpen(true);
       return;
     }
-    if (tab === "library") {
-      setOpenDoc(null);
-    }
     setActiveTab(tab);
   };
 
-  return (
-    <Layout activeTab={openDoc ? "player" : activeTab} onNavigate={handleNavigate}>
-      {error && (
-        <div className="px-4 py-2 text-sm bg-bad/10 text-bad border-b border-border">
-          {error}
-        </div>
-      )}
-      {loading && (
-        <div className="px-4 py-2 text-sm bg-surface text-fg-muted border-b border-border">
-          working...
-        </div>
-      )}
+  const handleBackToLibrary = () => {
+    setActiveTab("library");
+  };
 
-      {openDoc ? (
-        /* ---- Player / Doc Review view ---- */
-        <div className="flex flex-col h-full min-h-0">
-          {/* Sub-header for document context */}
-          <div className="flex items-center gap-2 px-4 py-2 bg-surface border-b border-border shrink-0">
-            <button
-              onClick={() => { setOpenDoc(null); setActiveTab("library"); }}
-              className="icon-btn"
-              title="Back to library"
-            >
-              <Icon path={mdiArrowLeft} size={0.9} />
-            </button>
-            <span className="flex-1 min-w-0 text-sm font-medium truncate" title={openDoc.rel_path}>
-              {openDoc.name}
-            </span>
-            <button
-              className="icon-btn inline-flex items-center gap-1"
-              onClick={() => setContextPickerOpen(true)}
-              title="Choose reference documents"
-            >
-              <Icon path={mdiPaperclip} size={0.85} />
-              <span className="text-xs text-fg-muted tabular-nums">
-                {openDoc.context_paths.length}
-              </span>
-            </button>
+  const handleExpandPlayer = () => {
+    if (openDoc) {
+      setActiveTab("player");
+    }
+  };
+
+  const handleUploadComplete = useCallback(() => {
+    refreshTree();
+    refreshRecents();
+  }, []);
+
+  const handleRetryUpload = useCallback(
+    (id: string) => {
+      const item = uploadItems.find((i) => i.id === id);
+      if (!item) return;
+      setUploadItems((prev) =>
+        prev.map((i) => (i.id === id ? { ...i, status: "uploading" as const, progress: 0, error: undefined } : i))
+      );
+      api.uploadDocument(item.file, (pct) => {
+        setUploadItems((prev) =>
+          prev.map((i) => (i.id === id ? { ...i, status: "uploading" as const, progress: pct } : i))
+        );
+      }).then((result) => {
+        setUploadItems((prev) =>
+          prev.map((i) =>
+            i.id === id
+              ? { ...i, status: "done" as const, progress: 100, resultRelPath: result.rel_path }
+              : i
+          )
+        );
+        toast("success", `"${result.name}" uploaded successfully`);
+        handleUploadComplete();
+      }).catch((err) => {
+        const msg = err instanceof Error ? err.message : "Upload failed";
+        setUploadItems((prev) =>
+          prev.map((i) => (i.id === id ? { ...i, status: "error" as const, error: msg } : i))
+        );
+      });
+    },
+    [uploadItems, toast, handleUploadComplete]
+  );
+
+  const handleRemoveUpload = useCallback((id: string) => {
+    setUploadItems((prev) => prev.filter((i) => i.id !== id));
+  }, []);
+
+  const handleDismissAllUploads = useCallback(() => {
+    setUploadItems((prev) => prev.filter((i) => i.status !== "done" && i.status !== "error"));
+  }, []);
+
+  const isPlayerView = activeTab === "player" && openDoc;
+
+  return (
+    <Layout activeTab={isPlayerView ? "player" : activeTab} onNavigate={handleNavigate}>
+      <DropZone
+        onToast={toast}
+        uploadItems={uploadItems}
+        setUploadItems={setUploadItems}
+        onUploadComplete={handleUploadComplete}
+      >
+        {error && (
+          <div className="px-4 py-2 text-sm bg-bad/10 text-bad border-b border-border">
+            {error}
           </div>
-          <div className="flex-1 min-h-0 overflow-hidden">
-            <DocReview doc={openDoc} onDocChanged={handleDocChanged} />
+        )}
+        {loading && (
+          <div className="px-4 py-2 text-sm bg-surface text-fg-muted border-b border-border">
+            working...
           </div>
-        </div>
-      ) : showOnboarding ? (
-        /* ---- First-time onboarding ---- */
-        <WelcomeScreen
-          onUpload={() => {
-            setShowOnboarding(false);
-            setActiveTab("upload");
-          }}
-          onBrowse={() => {
-            setShowOnboarding(false);
-          }}
-        />
-      ) : (
-        /* ---- Library card grid ---- */
-        <DocumentLibrary
-          documents={recents}
-          loading={loading || recents.length === 0 && tree === null}
-          onOpenDocument={handleOpenFile}
-        />
-      )}
+        )}
+
+        {isPlayerView ? (
+          /* ---- Audio Player view ---- */
+          <PlayerPage onBack={handleBackToLibrary} />
+        ) : showOnboarding ? (
+          /* ---- First-time onboarding ---- */
+          <WelcomeScreen
+            onUpload={() => {
+              setShowOnboarding(false);
+              setActiveTab("upload");
+            }}
+            onBrowse={() => {
+              setShowOnboarding(false);
+            }}
+          />
+        ) : (
+          /* ---- Library card grid + mini-player ---- */
+          <>
+            <DocumentLibrary
+              documents={recents}
+              loading={loading || recents.length === 0 && tree === null}
+              onOpenDocument={handleOpenFile}
+              uploadItems={uploadItems}
+            />
+            <MiniPlayer onExpand={handleExpandPlayer} />
+          </>
+        )}
+      </DropZone>
 
       {contextPickerOpen && openDoc && tree && (
         <ContextPickerModal
@@ -186,6 +237,17 @@ export function App() {
       {settingsOpen && (
         <SettingsModal onClose={() => setSettingsOpen(false)} />
       )}
+
+      {/* Upload queue bottom sheet */}
+      <UploadQueue
+        items={uploadItems}
+        onRetry={handleRetryUpload}
+        onRemove={handleRemoveUpload}
+        onDismissAll={handleDismissAllUploads}
+      />
+
+      {/* Toast notifications */}
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </Layout>
   );
 }
