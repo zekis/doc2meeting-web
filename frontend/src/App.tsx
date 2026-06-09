@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Icon from "@mdi/react";
 import {
   mdiArrowLeft,
@@ -16,9 +16,11 @@ import { DocReview } from "./components/DocReview";
 import { SettingsModal } from "./components/SettingsModal";
 import { Layout } from "./components/Layout";
 import { DocumentLibrary } from "./components/DocumentLibrary";
+import { UploadView } from "./components/UploadView";
 import { WelcomeScreen, hasCompletedOnboarding } from "./pages/Welcome";
 import { useAudioPlayer, PlayerPage, MiniPlayer } from "./audio";
 import { DropZone } from "./components/DropZone";
+import type { DropZoneHandle } from "./components/DropZone";
 import type { UploadItem } from "./components/UploadQueue";
 import { UploadQueue } from "./components/UploadQueue";
 import { ToastContainer, useToast } from "./components/Toast";
@@ -38,6 +40,11 @@ export function App() {
   // Upload state
   const [uploadItems, setUploadItems] = useState<UploadItem[]>([]);
   const { toasts, dismiss: dismissToast, toast } = useToast();
+  const dropZoneRef = useRef<DropZoneHandle>(null);
+
+  const triggerFilePicker = useCallback(() => {
+    dropZoneRef.current?.openFilePicker();
+  }, []);
 
   const refreshTree = async () => {
     try {
@@ -179,6 +186,7 @@ export function App() {
   return (
     <Layout activeTab={isPlayerView ? "player" : activeTab} onNavigate={handleNavigate}>
       <DropZone
+        ref={dropZoneRef}
         onToast={toast}
         uploadItems={uploadItems}
         setUploadItems={setUploadItems}
@@ -209,6 +217,9 @@ export function App() {
               setShowOnboarding(false);
             }}
           />
+        ) : activeTab === "upload" ? (
+          /* ---- Dedicated upload view ---- */
+          <UploadView onUploadClick={triggerFilePicker} />
         ) : (
           /* ---- Library card grid + mini-player ---- */
           <>
@@ -217,6 +228,7 @@ export function App() {
               loading={loading || recents.length === 0 && tree === null}
               onOpenDocument={handleOpenFile}
               uploadItems={uploadItems}
+              onUpload={triggerFilePicker}
             />
             <MiniPlayer onExpand={handleExpandPlayer} />
           </>
