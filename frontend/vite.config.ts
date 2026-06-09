@@ -1,13 +1,14 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import basicSsl from "@vitejs/plugin-basic-ssl";
+import tailwindcss from "@tailwindcss/vite";
 
 // HTTPS in dev so the Media Capture API (mic) works over the Tailscale IP.
 // Self-signed cert — the browser will warn once per device; tap through.
 // For a properly-signed cert, run `tailscale serve --https 443 5303` instead
 // and use the resulting *.ts.net URL.
 export default defineConfig({
-  plugins: [react(), basicSsl()],
+  plugins: [tailwindcss(), react(), basicSsl()],
   server: {
     host: true,
     port: 5303,
