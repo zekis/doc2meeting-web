@@ -1781,11 +1781,22 @@ button.link-btn {
    ========================================================================== */
 
 .mini-player {
+  position: fixed;
+  left: 0;
+  right: 0;
+  z-index: 35;
   background: var(--bg-pane);
   border-top: 1px solid var(--border);
   cursor: pointer;
   transition: background 0.15s;
   flex-shrink: 0;
+  /* Above mobile bottom nav (~52px), at viewport bottom on tablet/desktop */
+  bottom: 52px;
+}
+@media (min-width: 768px) {
+  .mini-player {
+    bottom: 0;
+  }
 }
 .mini-player:hover {
   background: var(--bg-elev);

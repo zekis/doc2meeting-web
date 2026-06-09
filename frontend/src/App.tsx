@@ -229,17 +229,14 @@ export function App() {
           /* ---- Dedicated upload view ---- */
           <UploadView onUploadClick={triggerFilePicker} />
         ) : (
-          /* ---- Library card grid + mini-player ---- */
-          <>
-            <DocumentLibrary
-              documents={recents}
-              loading={loading || recents.length === 0 && tree === null}
-              onOpenDocument={handleOpenFile}
-              uploadItems={uploadItems}
-              onUpload={triggerFilePicker}
-            />
-            <MiniPlayer onExpand={handleExpandPlayer} />
-          </>
+          /* ---- Library card grid ---- */
+          <DocumentLibrary
+            documents={recents}
+            loading={loading || recents.length === 0 && tree === null}
+            onOpenDocument={handleOpenFile}
+            uploadItems={uploadItems}
+            onUpload={triggerFilePicker}
+          />
         )}
       </DropZone>
 
@@ -257,6 +254,9 @@ export function App() {
       {settingsOpen && (
         <SettingsModal onClose={() => setSettingsOpen(false)} />
       )}
+
+      {/* Mini-player — shown on all views except the full player */}
+      {!isPlayerView && <MiniPlayer onExpand={handleExpandPlayer} />}
 
       {/* Upload queue bottom sheet */}
       <UploadQueue
