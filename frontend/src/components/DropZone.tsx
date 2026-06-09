@@ -226,7 +226,7 @@ export const DropZone = forwardRef<DropZoneHandle, DropZoneProps>(function DropZ
       </button>
       <button
         onClick={openFilePicker}
-        className="hidden tablet:flex fixed top-2 right-20 z-40 items-center gap-1.5 px-3 py-1.5 rounded-btn bg-accent text-accent-fg text-sm font-medium shadow hover:opacity-90 transition-opacity"
+        className="hidden tablet:flex fixed top-2 right-32 z-40 items-center gap-1.5 px-3 py-1.5 rounded-btn bg-accent text-accent-fg text-sm font-medium shadow hover:opacity-90 transition-opacity"
         title="Upload files"
       >
         <Icon path={mdiCloudUploadOutline} size={0.7} />

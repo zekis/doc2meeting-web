@@ -363,7 +363,23 @@ export const api = {
           return;
         }
         if (xhr.status >= 400) {
-          reject(new Error(`${xhr.status}: ${xhr.responseText}`));
+          // Try to extract a friendly message from structured error responses
+          let msg = `Upload failed (${xhr.status})`;
+          try {
+            const body = JSON.parse(xhr.responseText);
+            const detail = typeof body.detail === "object" ? body.detail : body;
+            if (detail.error === "page_limit_exceeded") {
+              msg = `Document has ${detail.page_count} pages — free tier limit is ${detail.pages_limit}. Upgrade to upload larger documents.`;
+            } else if (detail.message) {
+              msg = detail.message;
+            } else if (typeof body.detail === "string") {
+              msg = body.detail;
+            }
+          } catch {
+            // Not JSON — use raw text if short
+            if (xhr.responseText.length < 200) msg = xhr.responseText;
+          }
+          reject(new Error(msg));
           return;
         }
         try {
