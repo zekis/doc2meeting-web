@@ -28,6 +28,7 @@ setup_logging()
 
 import io
 import os
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -53,7 +54,7 @@ from .health import router as health_router
 from .telegram import router as telegram_router
 from .db import engine, get_session, init_db
 from .middleware import get_current_user, limiter, tier_limit
-from .models import AppSettings, Document, Review, ReviewStatus, User
+from .models import AppSettings, Document, Review, ReviewStatus, UsageRecord, User
 from .pipeline import (
     SectionHistoryEntry,
     cost_usd,
@@ -408,6 +409,45 @@ def patch_document(doc_id: int, body: ContextBody, current_user: User = Depends(
         except FileNotFoundError:
             text = ""
         return _serialize_document(session, doc, text)
+
+
+@app.delete("/api/documents/{doc_id}")
+def delete_document(doc_id: int, current_user: User = Depends(get_current_user)) -> dict:
+    """Delete a document, its reviews, audio files, and source file."""
+    with Session(engine) as session:
+        doc = _get_user_doc(session, doc_id, current_user)
+
+        # Delete reviews
+        reviews = session.exec(
+            select(Review).where(Review.document_id == doc_id)
+        ).all()
+        for r in reviews:
+            session.delete(r)
+
+        # Delete usage records
+        usage_records = session.exec(
+            select(UsageRecord).where(UsageRecord.document_id == doc_id)
+        ).all()
+        for u in usage_records:
+            session.delete(u)
+
+        # Delete audio files
+        audio_dir = AUDIO_DIR / str(doc_id)
+        if audio_dir.is_dir():
+            shutil.rmtree(audio_dir, ignore_errors=True)
+
+        # Delete source file
+        try:
+            source_path = fs.resolve_rel(doc.rel_path)
+            if source_path.is_file():
+                source_path.unlink()
+        except (ValueError, OSError):
+            pass  # file may already be gone
+
+        session.delete(doc)
+        session.commit()
+
+    return {"deleted": True, "id": doc_id}
 
 
 # ---------- Save as next version ----------

@@ -139,6 +139,17 @@ export function App() {
     }
   };
 
+  const handleDeleteDocument = useCallback(async (id: number) => {
+    // If the deleted doc is currently open in the player, stop playback
+    if (openDoc?.id === id) {
+      audioPlayer.stop();
+      setOpenDoc(null);
+      setActiveTab("library");
+    }
+    refreshTree();
+    refreshRecents();
+  }, [openDoc, audioPlayer]);
+
   const handleUploadComplete = useCallback(() => {
     refreshTree();
     refreshRecents();
@@ -234,6 +245,7 @@ export function App() {
             documents={recents}
             loading={loading || recents.length === 0 && tree === null}
             onOpenDocument={handleOpenFile}
+            onDeleteDocument={handleDeleteDocument}
             uploadItems={uploadItems}
             onUpload={triggerFilePicker}
           />

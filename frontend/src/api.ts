@@ -194,6 +194,10 @@ export const api = {
   openDocument: async (relPath: string): Promise<DocumentDetail> =>
     sendJson("POST", "/api/documents/open", { rel_path: relPath }),
 
+  deleteDocument: async (id: number): Promise<void> => {
+    await jsonOrThrow(await authFetch(`/api/documents/${id}`, { method: "DELETE" }));
+  },
+
   getDocument: async (id: number): Promise<DocumentDetail> =>
     jsonOrThrow(await authFetch(`/api/documents/${id}`)),
 

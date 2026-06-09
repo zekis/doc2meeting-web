@@ -9,8 +9,9 @@ import {
   mdiSortAlphabeticalAscending,
   mdiFileUploadOutline,
   mdiLoading,
+  mdiDeleteOutline,
 } from "@mdi/js";
-import type { DocumentSummary } from "../api";
+import { api, type DocumentSummary } from "../api";
 import type { UploadItem } from "./UploadQueue";
 
 type SortMode = "recent" | "alpha";
@@ -19,6 +20,7 @@ interface DocumentLibraryProps {
   documents: DocumentSummary[];
   loading: boolean;
   onOpenDocument: (relPath: string) => void;
+  onDeleteDocument?: (id: number) => void;
   uploadItems?: UploadItem[];
   onUpload?: () => void;
 }
@@ -54,7 +56,7 @@ function relativeTime(d: Date): string {
   return d.toLocaleDateString();
 }
 
-export function DocumentLibrary({ documents, loading, onOpenDocument, uploadItems = [], onUpload }: DocumentLibraryProps) {
+export function DocumentLibrary({ documents, loading, onOpenDocument, onDeleteDocument, uploadItems = [], onUpload }: DocumentLibraryProps) {
   const [sort, setSort] = useState<SortMode>("recent");
 
   const sorted = useMemo(() => {
@@ -152,6 +154,7 @@ export function DocumentLibrary({ documents, loading, onOpenDocument, uploadItem
             key={doc.id}
             doc={doc}
             onOpen={() => onOpenDocument(doc.rel_path)}
+            onDelete={onDeleteDocument ? () => onDeleteDocument(doc.id) : undefined}
           />
         ))}
       </div>
@@ -159,15 +162,38 @@ export function DocumentLibrary({ documents, loading, onOpenDocument, uploadItem
   );
 }
 
-function DocumentCard({ doc, onOpen }: { doc: DocumentSummary; onOpen: () => void }) {
+function DocumentCard({ doc, onOpen, onDelete }: { doc: DocumentSummary; onOpen: () => void; onDelete?: () => void }) {
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const fileType = getFileType(doc.name);
   const config = TYPE_CONFIG[fileType];
   const opened = new Date(doc.last_opened_at);
 
+  const handleDelete = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirming) {
+      setConfirming(true);
+      return;
+    }
+    setDeleting(true);
+    try {
+      await api.deleteDocument(doc.id);
+      onDelete?.();
+    } catch {
+      setDeleting(false);
+      setConfirming(false);
+    }
+  };
+
+  const handleCancelDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setConfirming(false);
+  };
+
   return (
-    <button
+    <div
       onClick={onOpen}
-      className="group flex flex-col bg-surface border border-border rounded-card overflow-hidden text-left cursor-pointer transition-all hover:border-accent/50 hover:shadow-lg hover:shadow-accent/5 active:scale-[0.98]"
+      className="group flex flex-col bg-surface border border-border rounded-card overflow-hidden text-left cursor-pointer transition-all hover:border-accent/50 hover:shadow-lg hover:shadow-accent/5 active:scale-[0.98] relative"
       title={doc.rel_path}
     >
       {/* Thumbnail */}
@@ -181,7 +207,43 @@ function DocumentCard({ doc, onOpen }: { doc: DocumentSummary; onOpen: () => voi
           <span className="w-1.5 h-1.5 rounded-full bg-ok" />
           Ready
         </span>
+        {/* Delete button — visible on hover */}
+        {onDelete && !confirming && (
+          <button
+            onClick={handleDelete}
+            className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded bg-black/40 hover:bg-bad/80 text-white"
+            title="Delete document"
+          >
+            <Icon path={mdiDeleteOutline} size={0.65} />
+          </button>
+        )}
       </div>
+
+      {/* Confirm delete overlay */}
+      {confirming && (
+        <div
+          className="absolute inset-0 z-10 bg-bg/90 flex flex-col items-center justify-center gap-3 p-4"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <p className="text-sm text-fg text-center font-medium">Delete this document?</p>
+          <p className="text-xs text-fg-muted text-center line-clamp-2">{doc.name}</p>
+          <div className="flex gap-2">
+            <button
+              onClick={handleDelete}
+              disabled={deleting}
+              className="px-3 py-1.5 rounded-btn bg-bad text-white text-xs font-medium hover:opacity-90 disabled:opacity-50"
+            >
+              {deleting ? "Deleting..." : "Delete"}
+            </button>
+            <button
+              onClick={handleCancelDelete}
+              className="px-3 py-1.5 rounded-btn bg-surface-elevated border border-border text-xs font-medium hover:text-fg"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Card body */}
       <div className="flex flex-col gap-1.5 p-3 flex-1">
@@ -195,7 +257,7 @@ function DocumentCard({ doc, onOpen }: { doc: DocumentSummary; onOpen: () => voi
           )}
         </div>
       </div>
-    </button>
+    </div>
   );
 }
 
