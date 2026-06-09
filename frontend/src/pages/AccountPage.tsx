@@ -61,13 +61,20 @@ export function AccountPage({ onBack }: AccountPageProps) {
     })();
   }, []);
 
+  const friendlyError = (e: unknown): string => {
+    const msg = (e as Error).message ?? String(e);
+    if (msg.includes("Stripe not configured") || msg.includes("503"))
+      return "Payments are not yet configured. Please contact your administrator to set up Stripe.";
+    return msg;
+  };
+
   const handleUpgrade = async (tier: string) => {
     setCheckoutLoading(tier);
     try {
       const { checkout_url } = await billingApi.createCheckout(tier);
       window.location.href = checkout_url;
     } catch (e) {
-      setError((e as Error).message);
+      setError(friendlyError(e));
       setCheckoutLoading(null);
     }
   };
@@ -78,7 +85,7 @@ export function AccountPage({ onBack }: AccountPageProps) {
       const { portal_url } = await billingApi.getPortalUrl();
       window.location.href = portal_url;
     } catch (e) {
-      setError((e as Error).message);
+      setError(friendlyError(e));
       setPortalLoading(false);
     }
   };
