@@ -9,7 +9,9 @@ Routes mounted at /api/auth:
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import os
 import urllib.parse
 import uuid
@@ -21,6 +23,8 @@ from fastapi.responses import RedirectResponse
 from jose import JWTError, jwt
 from pydantic import BaseModel
 from sqlmodel import Session, select
+
+log = logging.getLogger(__name__)
 
 from .db import get_session
 from .models import RefreshToken, User
@@ -60,7 +64,10 @@ if _google_client_id and _google_client_secret:
         server_metadata_url=(
             "https://accounts.google.com/.well-known/openid-configuration"
         ),
-        client_kwargs={"scope": "openid email profile"},
+        client_kwargs={
+            "scope": "openid email profile",
+            "timeout": 10,
+        },
     )
 
 # ---------------------------------------------------------------------------
@@ -126,13 +133,27 @@ async def google_login(request: Request):
     redirect_uri = OAUTH_REDIRECT_URI
     if not redirect_uri:
         raise HTTPException(500, detail="OAUTH_REDIRECT_URI not configured")
-    return await oauth.google.authorize_redirect(request, redirect_uri)
+    try:
+        return await asyncio.wait_for(
+            oauth.google.authorize_redirect(request, redirect_uri),
+            timeout=10,
+        )
+    except asyncio.TimeoutError:
+        log.error("Timeout contacting Google OpenID configuration")
+        raise HTTPException(504, detail="Google authentication service unreachable")
 
 
 @router.get("/google/callback")
 async def google_callback(request: Request, session: Session = Depends(get_session)):
     """Exchange the authorization code for user info, upsert, mint tokens."""
-    token_data = await oauth.google.authorize_access_token(request)
+    try:
+        token_data = await asyncio.wait_for(
+            oauth.google.authorize_access_token(request),
+            timeout=10,
+        )
+    except asyncio.TimeoutError:
+        log.error("Timeout exchanging Google auth code")
+        raise HTTPException(504, detail="Google token exchange timed out")
     userinfo = token_data.get("userinfo")
     if not userinfo:
         raise HTTPException(400, detail="no userinfo in token response")
