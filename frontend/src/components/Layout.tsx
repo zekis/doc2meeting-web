@@ -8,6 +8,8 @@ import {
   mdiLogout,
   mdiShieldAccountOutline,
   mdiAccountCircleOutline,
+  mdiMicrophone,
+  mdiClose,
 } from "@mdi/js";
 import { useAuth } from "../auth/AuthContext";
 
@@ -17,6 +19,12 @@ interface LayoutProps {
   children: ReactNode;
   activeTab?: NavTab;
   onNavigate?: (tab: NavTab) => void;
+  /** When true, the bottom nav hides the Player tab and shows Record instead */
+  isPlayerView?: boolean;
+  /** Whether the mic is currently recording */
+  isRecording?: boolean;
+  /** Toggle recording on/off (for the nav bar mic button) */
+  onRecordToggle?: () => void;
 }
 
 const NAV_ITEMS: Array<{ key: NavTab; icon: string; label: string; adminOnly?: boolean }> = [
@@ -28,7 +36,7 @@ const NAV_ITEMS: Array<{ key: NavTab; icon: string; label: string; adminOnly?: b
   { key: "admin", icon: mdiShieldAccountOutline, label: "Admin", adminOnly: true },
 ];
 
-export function Layout({ children, activeTab = "library", onNavigate }: LayoutProps) {
+export function Layout({ children, activeTab = "library", onNavigate, isPlayerView, isRecording, onRecordToggle }: LayoutProps) {
   const { user, logout } = useAuth();
   const isAdmin = user?.is_admin ?? false;
   const visibleItems = NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin);
@@ -133,21 +141,38 @@ export function Layout({ children, activeTab = "library", onNavigate }: LayoutPr
 
       {/* ---- Bottom nav (mobile, <768px) ---- */}
       <nav className="flex tablet:hidden items-center justify-around bg-surface border-t border-border py-1.5 px-2 shrink-0 safe-area-bottom">
-        {visibleItems.map((item) => (
-          <button
-            key={item.key}
-            onClick={() => onNavigate?.(item.key)}
-            className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded-btn text-[0.65rem] font-medium transition-colors
-              ${
-                activeTab === item.key
-                  ? "text-accent"
-                  : "text-fg-muted active:text-fg"
-              }`}
-          >
-            <Icon path={item.icon} size={0.85} />
-            <span>{item.label}</span>
-          </button>
-        ))}
+        {visibleItems.map((item) => {
+          // On the player screen: hide the Player tab, show Record mic instead
+          if (isPlayerView && item.key === "player") {
+            if (!onRecordToggle) return null;
+            return (
+              <button
+                key="record"
+                onClick={onRecordToggle}
+                className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded-btn text-[0.65rem] font-medium transition-colors
+                  ${isRecording ? "text-bad" : "text-fg-muted active:text-fg"}`}
+              >
+                <Icon path={isRecording ? mdiClose : mdiMicrophone} size={0.85} />
+                <span>{isRecording ? "Stop" : "Record"}</span>
+              </button>
+            );
+          }
+          return (
+            <button
+              key={item.key}
+              onClick={() => onNavigate?.(item.key)}
+              className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded-btn text-[0.65rem] font-medium transition-colors
+                ${
+                  activeTab === item.key
+                    ? "text-accent"
+                    : "text-fg-muted active:text-fg"
+                }`}
+            >
+              <Icon path={item.icon} size={0.85} />
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
       </nav>
     </div>
   );

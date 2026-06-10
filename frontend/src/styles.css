@@ -1510,12 +1510,16 @@ button.link-btn {
   flex-direction: column;
   gap: 0.35rem;
   shrink: 0;
+  overflow: hidden;
+  max-width: 100%;
 }
 
 .audio-player-progress-row {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .audio-player-time {
@@ -1570,6 +1574,8 @@ button.link-btn {
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .audio-player-section-title {
@@ -1667,12 +1673,21 @@ button.link-btn {
     padding: 0.4rem 0.5rem;
     padding-bottom: max(0.4rem, env(safe-area-inset-bottom));
   }
+  /* Hide section title on mobile — saves space, content is visible above */
   .audio-player-section-title {
-    font-size: 0.75rem;
+    display: none;
+  }
+  /* Speed pill doesn't need flex:1 balance on mobile since title is hidden */
+  .audio-player-speed-pill {
+    flex: 0 0 auto;
   }
   .audio-player-btn-play {
     width: 2.5rem;
     height: 2.5rem;
+  }
+  /* Hide floating mic on mobile — it's in the nav bar instead */
+  .player-floating-mic {
+    display: none;
   }
 }
 

@@ -29,6 +29,8 @@ import DOMPurify from "dompurify";
 
 interface PlayerPageProps {
   onBack: () => void;
+  /** Expose recording state so parent can render a nav-bar mic button on mobile */
+  onRecordingStateChange?: (isRecording: boolean, toggle: () => void) => void;
 }
 
 function renderMarkdown(md: string): string {
@@ -47,7 +49,7 @@ function commentsByParagraph(comments: UserCommentData[]): Map<string, UserComme
   return map;
 }
 
-export function PlayerPage({ onBack }: PlayerPageProps) {
+export function PlayerPage({ onBack, onRecordingStateChange }: PlayerPageProps) {
   const {
     doc,
     playbackState,
@@ -155,7 +157,7 @@ export function PlayerPage({ onBack }: PlayerPageProps) {
     }
   }, [doc]);
 
-  // Floating mic — records against currently playing paragraph
+  // Floating mic — records against currently playing paragraph (also used by nav bar button)
   const handleFloatingMicToggle = useCallback(() => {
     if (isListening && recordingTarget) {
       handleStopRecording();
@@ -170,6 +172,11 @@ export function PlayerPage({ onBack }: PlayerPageProps) {
     handleStartRecording,
     handleStopRecording,
   ]);
+
+  // Push recording state to parent for the mobile nav bar mic button
+  useEffect(() => {
+    onRecordingStateChange?.(isListening && !!recordingTarget, handleFloatingMicToggle);
+  }, [isListening, recordingTarget, handleFloatingMicToggle, onRecordingStateChange]);
 
   if (!doc) {
     return (
@@ -368,7 +375,7 @@ export function PlayerPage({ onBack }: PlayerPageProps) {
       {/* Mobile section list panel */}
       <SectionListPanel />
 
-      {/* Floating mic — talk while playing */}
+      {/* Floating mic — talk while playing (hidden on mobile, shown in nav bar instead) */}
       {sttSupported && !isFinished && (
         <button
           className={`player-floating-mic ${isListening ? "recording" : ""}`}
