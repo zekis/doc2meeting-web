@@ -1891,6 +1891,9 @@ button.link-btn {
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .player-page-header {
@@ -1913,6 +1916,7 @@ button.link-btn {
 .player-page-body {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   overflow: hidden;
   display: flex;
 }
@@ -1921,7 +1925,9 @@ button.link-btn {
 .player-page-content {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 1rem;
+  min-width: 0;
   -webkit-overflow-scrolling: touch;
 }
 
@@ -1957,6 +1963,9 @@ button.link-btn {
     flex-direction: column;
     flex: 1;
     min-height: 0;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
   }
 }
 
@@ -1982,11 +1991,13 @@ button.link-btn {
 
 /* Review text in player */
 .player-review-text {
-  max-width: 70ch;
+  max-width: min(70ch, 100%);
   margin: 0 auto;
   font-size: 0.95rem;
   line-height: 1.65;
   color: var(--fg);
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 /* Hide broken images from parsed document markdown — they cause layout shifts */
 .player-review-text img {
@@ -2036,6 +2047,7 @@ button.link-btn {
 .player-paragraph-text {
   flex: 1;
   min-width: 0;
+  overflow-wrap: break-word;
 }
 .player-paragraph.active {
   background: rgba(78, 205, 196, 0.1);
