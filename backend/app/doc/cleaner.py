@@ -2,8 +2,10 @@
 
 Goals:
 - Strip syntax noise (link URLs, image refs, raw markdown markers).
-- Replace code blocks and tables with short spoken summaries — reading them
-  verbatim is torture, but skipping silently loses context.
+- Convert tables into natural spoken prose (column: value pairs per row) so
+  the listener hears the actual data, not just a summary.
+- Replace code blocks with short spoken summaries — reading them verbatim
+  is torture, but skipping silently loses context.
 - Expand alphanumeric identifiers (`ST3P`, `RC4P`) into spell-out form so the
   TTS engine pronounces them as letters + numbers instead of guessing.
 - Preserve sentence structure and paragraph breaks (the narrator's pacing
@@ -50,51 +52,70 @@ def _replace_code_blocks(text: str) -> str:
     return text
 
 
-def _summarise_one_table(header_cells: list[str], body_rows: list[list[str]]) -> str:
-    """Produce a spoken-meeting-style sentence describing a markdown table.
+def _read_table(header_cells: list[str], body_rows: list[list[str]]) -> str:
+    """Convert a markdown table into natural spoken prose.
 
-    Recognises three patterns common in SAT specs:
-    - Step table: header is Step | Action | Expected Result | ...
-    - Test header form: empty header, body rows lead with Purpose / Test Cases / etc.
-    - Generic reference table: anything else.
-
-    Tables are NOT read out cell by cell. The reviewer still sees the raw markdown
-    via the section body and can comment on specifics if anything stands out.
+    Reads each row aloud using "column-name: value" pairs so the listener
+    can follow along without seeing the table visually.  Skips empty cells
+    and adapts phrasing based on table shape:
+    - Key-value tables (2 cols, first col looks like a label): reads as "Key is Value."
+    - Step/numbered tables: reads as "Step N. Column: value, Column: value."
+    - General tables: reads each row with column labels.
     """
     row_count = len(body_rows)
-    header_lower = [c.lower() for c in header_cells]
+    named = [c for c in header_cells if c.strip()]
 
-    is_step_table = (
-        len(header_cells) >= 5
-        and "step" in header_lower
-        and any("action" in c for c in header_lower)
-        and any("expected" in c for c in header_lower)
-    )
-    if is_step_table:
-        return f"(The test has {row_count} steps.)"
+    # -- Key-value table (2 columns, first column is labels) --
+    if len(header_cells) == 2 and row_count >= 2:
+        first_col_words = sum(1 for r in body_rows if r and r[0].strip())
+        if first_col_words >= row_count * 0.8:
+            parts: list[str] = []
+            for row in body_rows:
+                key = (row[0] if row else "").strip()
+                val = (row[1] if len(row) > 1 else "").strip()
+                if key and val:
+                    parts.append(f"{key}: {val}.")
+                elif key:
+                    parts.append(f"{key}.")
+            if parts:
+                return "\n".join(parts)
 
-    # Test header form: empty header row, first body cell is "Purpose" / similar.
-    test_header_keys = {
-        "purpose", "test cases executed", "special requirements",
-        "initialization", "version of test items",
-        "details of test environment particular to this test case",
-        "estimated time for completion",
-    }
-    first_col_labels = [(r[0] or "").strip().lower() for r in body_rows if r]
-    looks_like_test_header = (
-        (not header_cells or all(not c for c in header_cells))
-        and sum(1 for lbl in first_col_labels if lbl in test_header_keys) >= 3
-    )
-    if looks_like_test_header:
-        return "(The test header form follows, covering purpose, test cases, special requirements, initialization, version of test items, environment details and estimated time.)"
+    # -- Step / numbered first column --
+    header_lower = [c.lower().strip() for c in header_cells]
+    has_step_col = any(h in ("step", "#", "no", "no.", "number") for h in header_lower)
 
-    # Generic reference table.
-    named = [c for c in header_cells if c]
+    lines: list[str] = []
+    for row_idx, row in enumerate(body_rows):
+        row_parts: list[str] = []
+        for col_idx, cell in enumerate(row):
+            cell_text = cell.strip()
+            if not cell_text or cell_text == "-":
+                continue
+            col_name = header_cells[col_idx].strip() if col_idx < len(header_cells) else ""
+            if has_step_col and col_idx == 0:
+                row_parts.append(f"Step {cell_text}.")
+            elif col_name:
+                row_parts.append(f"{col_name}: {cell_text}.")
+            else:
+                row_parts.append(f"{cell_text}.")
+        if row_parts:
+            lines.append(" ".join(row_parts))
+
+    if not lines:
+        if named:
+            col_list = ", ".join(named[:5])
+            return f"(A {row_count}-row table with columns: {col_list}.)"
+        return f"(A {row_count}-row table follows.)"
+
+    # Intro line for context
     if named:
         col_list = ", ".join(named[:5])
-        extra = f" and {len(named) - 5} more columns" if len(named) > 5 else ""
-        return f"(A {row_count}-row reference table follows, with columns: {col_list}{extra}.)"
-    return f"(A {row_count}-row table follows.)"
+        extra = f" and {len(named) - 5} more" if len(named) > 5 else ""
+        intro = f"Table with {row_count} rows. Columns: {col_list}{extra}."
+    else:
+        intro = f"Table with {row_count} rows."
+
+    return intro + "\n" + "\n".join(lines)
 
 
 def _summarise_tables(text: str) -> str:
@@ -112,7 +133,7 @@ def _summarise_tables(text: str) -> str:
                 cells = [c.strip() for c in lines[i].strip().strip("|").split("|")]
                 body_rows.append(cells)
                 i += 1
-            out.append(_summarise_one_table(header_cells, body_rows))
+            out.append(_read_table(header_cells, body_rows))
             continue
         out.append(line)
         i += 1
