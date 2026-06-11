@@ -4,7 +4,7 @@ Add storage_provider and drive_refresh_token columns to user table
 for cloud storage integration (Phase A-1).
 
 Revision ID: d1a7f3b58e92
-Revises: c8e3f1a42d67
+Revises: d1a2b3c4e5f6
 Create Date: 2026-06-11
 """
 
@@ -15,7 +15,7 @@ import sqlalchemy as sa
 
 
 revision: str = "d1a7f3b58e92"
-down_revision: Union[str, Sequence[str], None] = "c8e3f1a42d67"
+down_revision: Union[str, Sequence[str], None] = "d1a2b3c4e5f6"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
