@@ -151,6 +151,21 @@ export function Login() {
         </div>
       </section>
 
+      {/* ---- Google Drive callout ---- */}
+      <section className="max-w-3xl mx-auto px-6 py-8">
+        <div className="flex items-center gap-5 p-6 rounded-card bg-surface border border-border">
+          <Icon path={mdiGoogleDrive} size={2} className="text-accent shrink-0" />
+          <div>
+            <h3 className="font-semibold text-lg mb-1">Powered by Google Drive</h3>
+            <p className="text-fg-muted text-sm leading-relaxed">
+              We don't store any of your data. Your documents and audiobooks are saved
+              directly to your own Google Drive account — you stay in full control.
+              Connect your Drive after signing up and everything syncs automatically.
+            </p>
+          </div>
+        </div>
+      </section>
+
       {/* ---- How it works ---- */}
       <section className="max-w-5xl mx-auto px-6 py-16">
         <h2 className="text-2xl font-bold text-center mb-4">How it works</h2>
@@ -289,7 +304,10 @@ export function Login() {
       {/* ---- Footer ---- */}
       <footer className="max-w-6xl mx-auto px-6 py-10 flex flex-col tablet:flex-row items-center justify-between gap-4 text-fg-muted text-xs">
         <span className="text-accent font-bold text-sm">doc2meeting</span>
-        <span>&copy; {new Date().getFullYear()} doc2meeting. All rights reserved.</span>
+        <div className="flex items-center gap-4">
+          <a href="/privacy" className="hover:text-accent transition-colors">Privacy Policy</a>
+          <span>&copy; {new Date().getFullYear()} doc2meeting. All rights reserved.</span>
+        </div>
       </footer>
     </div>
   );
