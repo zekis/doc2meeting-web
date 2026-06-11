@@ -1,20 +1,23 @@
 """Google Drive storage backend (Drive API v3, ``drive.file`` scope).
 
-Creates a ``doc2meeting/`` folder tree in the user's Drive on first use:
+Creates a ``doc2audiobook/`` folder tree in the user's Drive:
 
-    doc2meeting/
-    ├── documents/
-    └── audio/
-        └── <doc_id>/
+    doc2audiobook/
+    └── <Document Name>/
+        ├── <Document Name>.md
+        ├── chapter-01.mp3
+        ├── chapter-02.mp3
+        └── metadata.json
 
-Folder IDs are cached per-instance to avoid repeated lookups.
+Each document gets its own folder.  Folder IDs are cached per-instance.
 """
 
 from __future__ import annotations
 
 import io
+import json
 import logging
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 import httpx
 
@@ -125,7 +128,7 @@ class GoogleDriveStorage(CloudStorage):
 
         Returns the Drive folder ID for the deepest segment.
         """
-        root_id = await self._ensure_folder("doc2meeting")
+        root_id = await self._ensure_folder("doc2audiobook")
         parts = [p for p in path.split("/") if p]
         parent = root_id
         for part in parts:
@@ -148,7 +151,7 @@ class GoogleDriveStorage(CloudStorage):
         else:
             folder_path, filename = "", parts[0]
 
-        folder_id = await self._resolve_folder_path(folder_path) if folder_path else await self._ensure_folder("doc2meeting")
+        folder_id = await self._resolve_folder_path(folder_path) if folder_path else await self._ensure_folder("doc2audiobook")
 
         raw = data if isinstance(data, bytes) else data.read()
 
@@ -218,7 +221,7 @@ class GoogleDriveStorage(CloudStorage):
                 resp.raise_for_status()
 
     async def list_files(self, prefix: str = "") -> list[StoredFile]:
-        root_id = await self._ensure_folder("doc2meeting")
+        root_id = await self._ensure_folder("doc2audiobook")
 
         # If a prefix targets a subfolder, resolve it
         if prefix:
@@ -287,6 +290,214 @@ class GoogleDriveStorage(CloudStorage):
                 resp.raise_for_status()
 
     # ------------------------------------------------------------------
+    # Document-folder helpers (Phase B)
+    # ------------------------------------------------------------------
+
+    async def ensure_document_folder(self, doc_name: str) -> str:
+        """Create/find ``doc2audiobook/<doc_name>/`` and return its folder ID."""
+        root_id = await self._ensure_folder("doc2audiobook")
+        return await self._ensure_folder(doc_name, root_id)
+
+    async def upload_to_document_folder(
+        self,
+        doc_name: str,
+        filename: str,
+        data: bytes,
+        mime_type: str = "application/octet-stream",
+    ) -> StoredFile:
+        """Upload a file into ``doc2audiobook/<doc_name>/<filename>``."""
+        folder_id = await self.ensure_document_folder(doc_name)
+
+        # Check for existing file with same name and overwrite (update)
+        existing_id = await self._find_file_in_folder(filename, folder_id)
+        if existing_id:
+            return await self._update_file(existing_id, data, mime_type)
+
+        boundary = "doc2audiobook_boundary"
+        meta_json = json.dumps({"name": filename, "parents": [folder_id]})
+        body = (
+            f"--{boundary}\r\n"
+            f"Content-Type: application/json; charset=UTF-8\r\n\r\n"
+            f"{meta_json}\r\n"
+            f"--{boundary}\r\n"
+            f"Content-Type: {mime_type}\r\n\r\n"
+        ).encode() + data + f"\r\n--{boundary}--".encode()
+
+        headers = await self._headers()
+        headers["Content-Type"] = f"multipart/related; boundary={boundary}"
+
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            resp = await client.post(
+                f"{UPLOAD_API}/files",
+                headers=headers,
+                content=body,
+                params={
+                    "uploadType": "multipart",
+                    "fields": "id,name,mimeType,size",
+                },
+            )
+            resp.raise_for_status()
+            info = resp.json()
+
+        return StoredFile(
+            id=info["id"],
+            name=info.get("name", filename),
+            mime_type=info.get("mimeType", mime_type),
+            size=int(info.get("size", 0)),
+        )
+
+    async def upload_metadata(
+        self, doc_name: str, metadata: dict[str, Any],
+    ) -> StoredFile:
+        """Upload/update ``metadata.json`` in a document folder."""
+        data = json.dumps(metadata, indent=2).encode()
+        return await self.upload_to_document_folder(
+            doc_name, "metadata.json", data, "application/json",
+        )
+
+    async def list_document_folders(self) -> list[dict[str, str]]:
+        """List all document folders under ``doc2audiobook/``.
+
+        Returns list of ``{"id": ..., "name": ...}`` dicts.
+        """
+        root_id = await self._ensure_folder("doc2audiobook")
+        results: list[dict[str, str]] = []
+        page_token: str | None = None
+
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            while True:
+                params: dict = {
+                    "q": (
+                        f"'{root_id}' in parents and trashed=false "
+                        f"and mimeType='application/vnd.google-apps.folder'"
+                    ),
+                    "fields": "nextPageToken,files(id,name)",
+                    "pageSize": 100,
+                }
+                if page_token:
+                    params["pageToken"] = page_token
+                resp = await client.get(
+                    f"{DRIVE_API}/files",
+                    headers=await self._headers(),
+                    params=params,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                for f in data.get("files", []):
+                    results.append({"id": f["id"], "name": f["name"]})
+                page_token = data.get("nextPageToken")
+                if not page_token:
+                    break
+        return results
+
+    async def list_document_folder_files(
+        self, doc_name: str,
+    ) -> list[StoredFile]:
+        """List all files inside a specific document folder."""
+        folder_id = await self.ensure_document_folder(doc_name)
+        return await self._list_files_in_folder(folder_id)
+
+    async def delete_document_folder(self, doc_name: str) -> None:
+        """Delete an entire document folder and all its contents."""
+        root_id = await self._ensure_folder("doc2audiobook")
+        folder_id = await self._find_folder(doc_name, root_id)
+        if not folder_id:
+            return
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            resp = await client.delete(
+                f"{DRIVE_API}/files/{folder_id}",
+                headers=await self._headers(),
+            )
+            if resp.status_code != 404:
+                resp.raise_for_status()
+        # Clear from cache
+        cache_key = f"{root_id}/{doc_name}"
+        self._folder_cache.pop(cache_key, None)
+
+    async def _find_file_in_folder(
+        self, filename: str, folder_id: str,
+    ) -> str | None:
+        """Find a file by name within a specific folder."""
+        q = (
+            f"name='{filename}' and '{folder_id}' in parents "
+            f"and trashed=false "
+            f"and mimeType!='application/vnd.google-apps.folder'"
+        )
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            resp = await client.get(
+                f"{DRIVE_API}/files",
+                headers=await self._headers(),
+                params={"q": q, "fields": "files(id)", "pageSize": 1},
+            )
+            resp.raise_for_status()
+            files = resp.json().get("files", [])
+        return files[0]["id"] if files else None
+
+    async def _update_file(
+        self, file_id: str, data: bytes, mime_type: str,
+    ) -> StoredFile:
+        """Replace the content of an existing Drive file."""
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            resp = await client.patch(
+                f"{UPLOAD_API}/files/{file_id}",
+                headers={
+                    **(await self._headers()),
+                    "Content-Type": mime_type,
+                },
+                content=data,
+                params={
+                    "uploadType": "media",
+                    "fields": "id,name,mimeType,size",
+                },
+            )
+            resp.raise_for_status()
+            info = resp.json()
+        return StoredFile(
+            id=info["id"],
+            name=info.get("name", ""),
+            mime_type=info.get("mimeType", mime_type),
+            size=int(info.get("size", 0)),
+        )
+
+    async def _list_files_in_folder(
+        self, folder_id: str,
+    ) -> list[StoredFile]:
+        """List non-folder files in a specific folder."""
+        results: list[StoredFile] = []
+        page_token: str | None = None
+
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            while True:
+                params: dict = {
+                    "q": (
+                        f"'{folder_id}' in parents and trashed=false "
+                        f"and mimeType!='application/vnd.google-apps.folder'"
+                    ),
+                    "fields": "nextPageToken,files(id,name,mimeType,size)",
+                    "pageSize": 100,
+                }
+                if page_token:
+                    params["pageToken"] = page_token
+                resp = await client.get(
+                    f"{DRIVE_API}/files",
+                    headers=await self._headers(),
+                    params=params,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                for f in data.get("files", []):
+                    results.append(StoredFile(
+                        id=f["id"],
+                        name=f.get("name", ""),
+                        mime_type=f.get("mimeType", ""),
+                        size=int(f.get("size", 0)),
+                    ))
+                page_token = data.get("nextPageToken")
+                if not page_token:
+                    break
+        return results
+
+    # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
@@ -302,7 +513,7 @@ class GoogleDriveStorage(CloudStorage):
             if folder_path:
                 folder_id = await self._resolve_folder_path(folder_path)
             else:
-                folder_id = await self._ensure_folder("doc2meeting")
+                folder_id = await self._ensure_folder("doc2audiobook")
         except httpx.HTTPStatusError:
             return None
 

@@ -285,18 +285,19 @@ async def upload_document(
     text = fs.read_text(rel_path)
     hash_now = fs.content_hash(text)
 
-    # Upload original to Google Drive if connected
+    # Upload to Google Drive document folder if connected
     drive_file_id: str | None = None
+    doc_name = Path(rel_path).stem  # e.g. "My Report" from "My Report.md"
     storage = get_user_storage(current_user)
-    if storage:
+    if storage and hasattr(storage, "upload_to_document_folder"):
         try:
             mime = {".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                     ".pdf": "application/pdf", ".md": "text/markdown"}.get(ext, "application/octet-stream")
-            stored = await storage.upload_file(
-                f"documents/{target.name}", content, mime,
+            stored = await storage.upload_to_document_folder(
+                doc_name, target.name, content, mime,
             )
             drive_file_id = stored.id
-            _log.info("Uploaded document to Drive: %s (id=%s)", target.name, stored.id)
+            _log.info("Uploaded document to Drive: %s/%s (id=%s)", doc_name, target.name, stored.id)
         except Exception:
             _log.warning("Drive upload failed for document %s", target.name, exc_info=True)
 
@@ -477,19 +478,21 @@ async def delete_document(
         for uc in user_comments:
             session.delete(uc)
 
-        # Delete Drive files
+        # Delete Drive files — prefer deleting the whole document folder
+        doc_name = Path(doc.rel_path).stem
         storage = get_user_storage(current_user)
-        if storage and drive_ids_to_delete:
-            for did in drive_ids_to_delete:
+        if storage:
+            if hasattr(storage, "delete_document_folder"):
                 try:
-                    await storage.delete_by_id(did)
+                    await storage.delete_document_folder(doc_name)
                 except Exception:
-                    _log.warning("Failed to delete Drive file %s", did, exc_info=True)
-            # Also try to delete the audio folder for this doc
-            try:
-                await storage.delete_file(f"audio/{doc_id}")
-            except Exception:
-                pass
+                    _log.warning("Failed to delete Drive folder %s", doc_name, exc_info=True)
+            elif drive_ids_to_delete:
+                for did in drive_ids_to_delete:
+                    try:
+                        await storage.delete_by_id(did)
+                    except Exception:
+                        _log.warning("Failed to delete Drive file %s", did, exc_info=True)
 
         # Delete local audio directory for this document
         audio_dir = AUDIO_DIR / str(doc_id)
@@ -1625,6 +1628,7 @@ async def _upload_audio_to_drive(
     *drive_id_field* is the Review column to store the Drive ID in
     (``narrator_drive_id``, ``reviewer_drive_id``, or ``response_drive_id``).
 
+    Audio is uploaded into the per-document folder: ``doc2audiobook/<doc_name>/``.
     Narrator audio (content-hash-named) is kept locally as a cache; reviewer
     and response audio (UUID-named, never re-checked) are deleted after upload.
     """
@@ -1640,9 +1644,21 @@ async def _upload_audio_to_drive(
             if not local.is_file():
                 return
             data = local.read_bytes()
-            stored = await storage.upload_file(
-                f"audio/{audio_rel_path}", data, "audio/mpeg",
-            )
+            audio_filename = Path(audio_rel_path).name
+
+            # Upload into per-document folder if storage supports it
+            if hasattr(storage, "upload_to_document_folder"):
+                review = session.get(Review, review_id)
+                doc = session.get(Document, review.document_id) if review else None
+                doc_name = Path(doc.rel_path).stem if doc else "unknown"
+                stored = await storage.upload_to_document_folder(
+                    doc_name, audio_filename, data, "audio/mpeg",
+                )
+            else:
+                stored = await storage.upload_file(
+                    f"audio/{audio_rel_path}", data, "audio/mpeg",
+                )
+
             review = session.get(Review, review_id)
             if review:
                 setattr(review, drive_id_field, stored.id)
