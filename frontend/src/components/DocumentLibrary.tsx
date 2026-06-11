@@ -10,6 +10,8 @@ import {
   mdiFileUploadOutline,
   mdiLoading,
   mdiDeleteOutline,
+  mdiGoogleDrive,
+  mdiMonitor,
 } from "@mdi/js";
 import { api, type DocumentSummary } from "../api";
 import type { UploadItem } from "./UploadQueue";
@@ -59,15 +61,18 @@ function relativeTime(d: Date): string {
 export function DocumentLibrary({ documents, loading, onOpenDocument, onDeleteDocument, uploadItems = [], onUpload }: DocumentLibraryProps) {
   const [sort, setSort] = useState<SortMode>("recent");
 
-  const sorted = useMemo(() => {
-    const copy = [...documents];
-    if (sort === "alpha") {
-      copy.sort((a, b) => a.name.localeCompare(b.name));
-    } else {
-      copy.sort((a, b) => new Date(b.last_opened_at).getTime() - new Date(a.last_opened_at).getTime());
-    }
-    return copy;
+  const { cloudDocs, localDocs } = useMemo(() => {
+    const cloud = documents.filter((d) => d.on_drive);
+    const local = documents.filter((d) => !d.on_drive);
+    const sortFn = sort === "alpha"
+      ? (a: DocumentSummary, b: DocumentSummary) => a.name.localeCompare(b.name)
+      : (a: DocumentSummary, b: DocumentSummary) => new Date(b.last_opened_at).getTime() - new Date(a.last_opened_at).getTime();
+    cloud.sort(sortFn);
+    local.sort(sortFn);
+    return { cloudDocs: cloud, localDocs: local };
   }, [documents, sort]);
+
+  const sorted = useMemo(() => [...cloudDocs, ...localDocs], [cloudDocs, localDocs]);
 
   // Skeleton loading state
   if (loading && documents.length === 0) {
@@ -140,24 +145,63 @@ export function DocumentLibrary({ documents, loading, onOpenDocument, onDeleteDo
         </button>
       </div>
 
-      {/* Card grid */}
-      <div className="grid grid-cols-1 phone:grid-cols-2 tablet:grid-cols-3 laptop:grid-cols-4 gap-4">
-        {/* Processing cards for active uploads */}
-        {uploadItems
-          .filter((i) => i.status !== "error")
-          .filter((i) => i.status !== "done" || !sorted.some((d) => d.rel_path === i.resultRelPath))
-          .map((item) => (
-            <ProcessingCard key={item.id} item={item} />
-          ))}
-        {sorted.map((doc) => (
-          <DocumentCard
-            key={doc.id}
-            doc={doc}
-            onOpen={() => onOpenDocument(doc.rel_path)}
-            onDelete={onDeleteDocument ? () => onDeleteDocument(doc.id) : undefined}
-          />
-        ))}
-      </div>
+      {/* Processing cards for active uploads */}
+      {uploadItems.filter((i) => i.status !== "error").filter((i) => i.status !== "done" || !sorted.some((d) => d.rel_path === i.resultRelPath)).length > 0 && (
+        <div className="grid grid-cols-1 phone:grid-cols-2 tablet:grid-cols-3 laptop:grid-cols-4 gap-4 mb-6">
+          {uploadItems
+            .filter((i) => i.status !== "error")
+            .filter((i) => i.status !== "done" || !sorted.some((d) => d.rel_path === i.resultRelPath))
+            .map((item) => (
+              <ProcessingCard key={item.id} item={item} />
+            ))}
+        </div>
+      )}
+
+      {/* Cloud Storage section */}
+      {cloudDocs.length > 0 && (
+        <div className="mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <Icon path={mdiGoogleDrive} size={0.7} className="text-accent" />
+            <h3 className="text-sm font-semibold text-fg-muted uppercase tracking-wide">
+              Cloud Storage
+            </h3>
+            <span className="text-xs text-fg-muted">({cloudDocs.length})</span>
+          </div>
+          <div className="grid grid-cols-1 phone:grid-cols-2 tablet:grid-cols-3 laptop:grid-cols-4 gap-4">
+            {cloudDocs.map((doc) => (
+              <DocumentCard
+                key={doc.id}
+                doc={doc}
+                onOpen={() => onOpenDocument(doc.rel_path)}
+                onDelete={onDeleteDocument ? () => onDeleteDocument(doc.id) : undefined}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Local Storage section */}
+      {localDocs.length > 0 && (
+        <div className="mb-6">
+          <div className="flex items-center gap-2 mb-3">
+            <Icon path={mdiMonitor} size={0.7} className="text-fg-muted" />
+            <h3 className="text-sm font-semibold text-fg-muted uppercase tracking-wide">
+              This Device
+            </h3>
+            <span className="text-xs text-fg-muted">({localDocs.length})</span>
+          </div>
+          <div className="grid grid-cols-1 phone:grid-cols-2 tablet:grid-cols-3 laptop:grid-cols-4 gap-4">
+            {localDocs.map((doc) => (
+              <DocumentCard
+                key={doc.id}
+                doc={doc}
+                onOpen={() => onOpenDocument(doc.rel_path)}
+                onDelete={onDeleteDocument ? () => onDeleteDocument(doc.id) : undefined}
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -202,11 +246,18 @@ function DocumentCard({ doc, onOpen, onDelete }: { doc: DocumentSummary; onOpen:
         <span className="absolute top-2 right-2 text-[0.6rem] font-bold uppercase tracking-wider text-white/60 bg-black/20 px-1.5 py-0.5 rounded">
           {config.label}
         </span>
-        {/* Status badge */}
-        <span className="absolute bottom-2 left-2 inline-flex items-center gap-1 text-[0.65rem] font-medium px-1.5 py-0.5 rounded-full bg-ok/20 text-ok">
-          <span className="w-1.5 h-1.5 rounded-full bg-ok" />
-          Ready
-        </span>
+        {/* Storage indicator badge */}
+        {doc.on_drive ? (
+          <span className="absolute bottom-2 left-2 inline-flex items-center gap-1 text-[0.65rem] font-medium px-1.5 py-0.5 rounded-full bg-accent/20 text-accent">
+            <Icon path={mdiGoogleDrive} size={0.4} />
+            Drive
+          </span>
+        ) : (
+          <span className="absolute bottom-2 left-2 inline-flex items-center gap-1 text-[0.65rem] font-medium px-1.5 py-0.5 rounded-full bg-warn/20 text-warn" title="Not synced — only available on this device">
+            <Icon path={mdiMonitor} size={0.4} />
+            This device only
+          </span>
+        )}
         {/* Delete button — visible on hover */}
         {onDelete && !confirming && (
           <button

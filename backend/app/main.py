@@ -389,6 +389,7 @@ def list_documents(request: Request, current_user: User = Depends(get_current_us
                     "name": Path(d.rel_path).name,
                     "context_paths": d.context_paths,
                     "last_opened_at": d.last_opened_at.isoformat(),
+                    "on_drive": bool(d.drive_file_id),
                 }
             )
         return out

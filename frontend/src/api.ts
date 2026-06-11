@@ -29,6 +29,7 @@ export interface DocumentSummary {
   name: string;
   context_paths: string[];
   last_opened_at: string;
+  on_drive?: boolean;
 }
 
 export interface DocumentDetail {
