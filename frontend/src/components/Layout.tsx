@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { type ReactNode, useState, useRef, useEffect } from "react";
 import Icon from "@mdi/react";
 import {
   mdiBookOpenPageVariant,
@@ -31,7 +31,6 @@ const NAV_ITEMS: Array<{ key: NavTab; icon: string; label: string; adminOnly?: b
   { key: "library", icon: mdiBookOpenPageVariant, label: "Library" },
   { key: "upload", icon: mdiCloudUploadOutline, label: "Upload" },
   { key: "player", icon: mdiPlayCircleOutline, label: "Player" },
-  { key: "account", icon: mdiAccountCircleOutline, label: "Account" },
   { key: "settings", icon: mdiCogOutline, label: "Settings" },
   { key: "admin", icon: mdiShieldAccountOutline, label: "Admin", adminOnly: true },
 ];
@@ -40,6 +39,21 @@ export function Layout({ children, activeTab = "library", onNavigate, isPlayerVi
   const { user, logout } = useAuth();
   const isAdmin = user?.is_admin ?? false;
   const visibleItems = NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin);
+
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close menu on outside click
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [menuOpen]);
 
   const initials = user?.name
     ? user.name
@@ -86,18 +100,34 @@ export function Layout({ children, activeTab = "library", onNavigate, isPlayerVi
               </span>
             </span>
           )}
-          <button
-            onClick={logout}
-            className="hidden laptop:flex items-center gap-1 text-fg-muted hover:text-fg text-sm px-2 py-1 rounded-btn transition-colors"
-            title="Sign out"
-          >
-            <Icon path={mdiLogout} size={0.7} />
-          </button>
-          <div
-            className="w-8 h-8 rounded-full bg-accent/20 text-accent text-xs font-semibold flex items-center justify-center shrink-0"
-            title={user?.name ?? "User"}
-          >
-            {initials}
+          {/* User badge with dropdown */}
+          <div className="relative" ref={menuRef}>
+            <button
+              onClick={() => setMenuOpen((v) => !v)}
+              className="w-8 h-8 rounded-full bg-accent/20 text-accent text-xs font-semibold flex items-center justify-center shrink-0 hover:bg-accent/30 transition-colors cursor-pointer"
+              title={user?.name ?? "User"}
+            >
+              {initials}
+            </button>
+            {menuOpen && (
+              <div className="absolute right-0 top-full mt-1.5 w-44 bg-surface border border-border rounded-card shadow-lg z-50 py-1 overflow-hidden">
+                <button
+                  onClick={() => { setMenuOpen(false); onNavigate?.("account"); }}
+                  className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-fg hover:bg-surface-elevated transition-colors"
+                >
+                  <Icon path={mdiAccountCircleOutline} size={0.7} className="text-fg-muted" />
+                  Account
+                </button>
+                <div className="h-px bg-border my-1" />
+                <button
+                  onClick={() => { setMenuOpen(false); logout(); }}
+                  className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-fg-muted hover:text-fg hover:bg-surface-elevated transition-colors"
+                >
+                  <Icon path={mdiLogout} size={0.7} />
+                  Sign out
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </header>
@@ -121,16 +151,6 @@ export function Layout({ children, activeTab = "library", onNavigate, isPlayerVi
               <span>{item.label}</span>
             </button>
           ))}
-          <div className="mt-auto">
-            <button
-              onClick={logout}
-              className="flex flex-col items-center gap-0.5 w-full py-2 rounded-btn text-[0.65rem] text-fg-muted hover:text-fg transition-colors"
-              title="Sign out"
-            >
-              <Icon path={mdiLogout} size={0.85} />
-              <span>Logout</span>
-            </button>
-          </div>
         </nav>
 
         {/* ---- Content area ---- */}
