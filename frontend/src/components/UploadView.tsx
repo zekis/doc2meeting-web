@@ -6,32 +6,42 @@ import {
   mdiFilePdfBox,
   mdiCloudUploadOutline,
   mdiClose,
+  mdiGoogleDrive,
 } from "@mdi/js";
-import { getDriveStatus, connectDrive } from "../api";
+import { getDriveStatus, connectDrive, type UploadResult } from "../api";
+import { DrivePicker } from "./DrivePicker";
 
 const BANNER_DISMISSED_KEY = "doc2meeting_drive_banner_dismissed";
 
 interface UploadViewProps {
   onUploadClick: () => void;
+  onToast: (type: "error" | "success", text: string) => void;
+  onUploadComplete: () => void;
 }
 
-export function UploadView({ onUploadClick }: UploadViewProps) {
+export function UploadView({ onUploadClick, onToast, onUploadComplete }: UploadViewProps) {
   const [showBanner, setShowBanner] = useState(false);
+  const [driveConnected, setDriveConnected] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   useEffect(() => {
-    if (localStorage.getItem(BANNER_DISMISSED_KEY) === "1") return;
     getDriveStatus()
       .then((status) => {
-        if (!status.connected) setShowBanner(true);
+        setDriveConnected(status.connected);
+        if (!status.connected && localStorage.getItem(BANNER_DISMISSED_KEY) !== "1") {
+          setShowBanner(true);
+        }
       })
-      .catch(() => {
-        // Silently ignore — banner is informational only
-      });
+      .catch(() => {});
   }, []);
 
   const dismissBanner = () => {
     setShowBanner(false);
     localStorage.setItem(BANNER_DISMISSED_KEY, "1");
+  };
+
+  const handleImported = (_result: UploadResult) => {
+    onUploadComplete();
   };
 
   return (
@@ -57,7 +67,8 @@ export function UploadView({ onUploadClick }: UploadViewProps) {
           </button>
         </div>
       )}
-      <div className="flex flex-col items-center justify-center py-12 px-4">
+      <div className="flex flex-col items-center justify-center py-12 px-4 gap-6">
+        {/* Drag-and-drop / local file picker */}
         <button
           type="button"
           onClick={onUploadClick}
@@ -83,7 +94,48 @@ export function UploadView({ onUploadClick }: UploadViewProps) {
             Choose Files
           </span>
         </button>
+
+        {/* Divider */}
+        <div className="flex items-center gap-4 max-w-md w-full">
+          <div className="flex-1 h-px bg-border" />
+          <span className="text-xs text-fg-muted uppercase tracking-wide">or</span>
+          <div className="flex-1 h-px bg-border" />
+        </div>
+
+        {/* Google Drive import */}
+        {driveConnected ? (
+          <button
+            type="button"
+            onClick={() => setPickerOpen(true)}
+            className="flex items-center gap-3 px-6 py-3.5 rounded-2xl border-2 border-border hover:border-accent/50 hover:bg-accent/5 transition-colors max-w-md w-full"
+          >
+            <Icon path={mdiGoogleDrive} size={1.2} className="text-accent" />
+            <div className="text-left">
+              <p className="text-sm font-medium text-fg">Import from Google Drive</p>
+              <p className="text-xs text-fg-muted">Browse and select an existing document</p>
+            </div>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={connectDrive}
+            className="flex items-center gap-3 px-6 py-3.5 rounded-2xl border-2 border-border hover:border-accent/50 hover:bg-accent/5 transition-colors max-w-md w-full"
+          >
+            <Icon path={mdiGoogleDrive} size={1.2} className="text-fg-muted" />
+            <div className="text-left">
+              <p className="text-sm font-medium text-fg">Connect Google Drive</p>
+              <p className="text-xs text-fg-muted">Import documents directly from your Drive</p>
+            </div>
+          </button>
+        )}
       </div>
+
+      <DrivePicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onImported={handleImported}
+        onToast={onToast}
+      />
     </div>
   );
 }

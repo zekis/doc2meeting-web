@@ -38,7 +38,7 @@ DRIVE_OAUTH_REDIRECT_URI = os.environ.get(
     "http://localhost:8000/api/auth/drive/callback",
 )
 
-DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file"
+DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly"
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 TIMEOUT = 10.0

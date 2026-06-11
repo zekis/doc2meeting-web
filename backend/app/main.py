@@ -322,6 +322,145 @@ async def upload_document(
         }
 
 
+# ---------- Google Drive file browser ----------
+
+
+@app.get("/api/drive/browse")
+async def drive_browse(
+    folder_id: str = "",
+    q: str = "",
+    page_token: str = "",
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """List files in the user's Google Drive for picking/importing."""
+    storage = get_user_storage(current_user)
+    if not storage or not hasattr(storage, "list_user_files"):
+        raise HTTPException(400, "Google Drive not connected")
+
+    try:
+        return await storage.list_user_files(
+            folder_id=folder_id or None,
+            query=q or None,
+            page_token=page_token or None,
+        )
+    except Exception as exc:
+        _log.warning("Drive browse failed: %s", exc, exc_info=True)
+        raise HTTPException(502, "Failed to list Drive files")
+
+
+class DriveImportBody(BaseModel):
+    file_id: str
+    name: str
+
+
+@app.post("/api/drive/import")
+async def drive_import(
+    body: DriveImportBody,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Import a file from the user's Google Drive into the library.
+
+    Downloads the file, converts to markdown if needed, saves locally,
+    and copies to the app's doc2audiobook folder on Drive.
+    """
+    storage = get_user_storage(current_user)
+    if not storage:
+        raise HTTPException(400, "Google Drive not connected")
+
+    # Download the file from Drive
+    try:
+        content = await storage.download_by_id(body.file_id)
+    except Exception as exc:
+        _log.warning("Drive import download failed: %s", exc, exc_info=True)
+        raise HTTPException(502, "Failed to download file from Drive")
+
+    if len(content) == 0:
+        raise HTTPException(400, "File is empty")
+    if len(content) > UPLOAD_MAX_SIZE:
+        raise HTTPException(400, "File too large (max 50 MB)")
+
+    filename = body.name
+    ext = Path(filename).suffix.lower()
+    if ext not in UPLOAD_ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            400,
+            f"Unsupported file type: {ext}. Accepted: .docx, .md, .pdf",
+        )
+
+    # Save to local filesystem (same dedup logic as upload)
+    base_name = Path(filename).stem
+    target = fs.root_dir() / filename
+    counter = 1
+    while target.exists():
+        target = fs.root_dir() / f"{base_name}_{counter}{ext}"
+        counter += 1
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(content)
+
+    # Convert non-markdown files
+    md_rel_path: str | None = None
+    if ext in (".docx", ".pdf"):
+        from markitdown import MarkItDown
+
+        try:
+            result = MarkItDown().convert(str(target))
+        except Exception as e:
+            target.unlink(missing_ok=True)
+            raise HTTPException(500, f"Conversion failed: {e}")
+        md_target = target.with_suffix(".md")
+        md_counter = 1
+        while md_target.exists():
+            md_target = target.with_name(f"{target.stem}_{md_counter}.md")
+            md_counter += 1
+        cleaned = strip_toc(result.text_content or "")
+        md_target.write_text(cleaned, encoding="utf-8")
+        md_rel_path = fs.to_rel(md_target)
+
+    rel_path = md_rel_path or fs.to_rel(target)
+
+    # Create Document record
+    text = fs.read_text(rel_path)
+    hash_now = fs.content_hash(text)
+
+    # Copy to app's doc2audiobook folder on Drive
+    drive_file_id: str | None = None
+    doc_name = Path(rel_path).stem
+    if hasattr(storage, "upload_to_document_folder"):
+        try:
+            mime = {
+                ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                ".pdf": "application/pdf",
+                ".md": "text/markdown",
+            }.get(ext, "application/octet-stream")
+            stored = await storage.upload_to_document_folder(
+                doc_name, target.name, content, mime,
+            )
+            drive_file_id = stored.id
+            _log.info("Imported Drive file to app folder: %s/%s (id=%s)", doc_name, target.name, stored.id)
+        except Exception:
+            _log.warning("Drive copy failed for import %s", target.name, exc_info=True)
+
+    with Session(engine) as session:
+        doc = Document(
+            rel_path=rel_path,
+            content_hash=hash_now,
+            user_id=current_user.id,
+            last_opened_at=datetime.utcnow(),
+            drive_file_id=drive_file_id,
+        )
+        session.add(doc)
+        session.commit()
+        session.refresh(doc)
+
+        return {
+            "id": doc.id,
+            "rel_path": rel_path,
+            "name": Path(rel_path).name,
+            "original_name": filename,
+            "size": len(content),
+        }
+
+
 # ---------- Documents ----------
 
 class OpenBody(BaseModel):

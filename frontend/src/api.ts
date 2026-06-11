@@ -491,6 +491,36 @@ export async function disconnectDrive(): Promise<{ ok: boolean }> {
   return sendJson("POST", "/api/auth/drive/disconnect");
 }
 
+export interface DriveFile {
+  id: string;
+  name: string;
+  mimeType: string;
+  size: number;
+  modifiedTime: string;
+  isFolder: boolean;
+}
+
+export interface DriveBrowseResult {
+  files: DriveFile[];
+  nextPageToken: string | null;
+}
+
+export async function browseDriveFiles(opts: {
+  folderId?: string;
+  query?: string;
+  pageToken?: string;
+} = {}): Promise<DriveBrowseResult> {
+  const params = new URLSearchParams();
+  if (opts.folderId) params.set("folder_id", opts.folderId);
+  if (opts.query) params.set("q", opts.query);
+  if (opts.pageToken) params.set("page_token", opts.pageToken);
+  return jsonOrThrow(await authFetch(`/api/drive/browse?${params.toString()}`));
+}
+
+export async function importDriveFile(fileId: string, name: string): Promise<UploadResult> {
+  return sendJson("POST", "/api/drive/import", { file_id: fileId, name });
+}
+
 // ---------------------------------------------------------------------------
 // Admin API
 // ---------------------------------------------------------------------------

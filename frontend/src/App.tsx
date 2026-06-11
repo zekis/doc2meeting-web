@@ -273,7 +273,7 @@ export function App() {
           <AdminDashboard onBack={handleBackToLibrary} />
         ) : activeTab === "upload" ? (
           /* ---- Dedicated upload view ---- */
-          <UploadView onUploadClick={triggerFilePicker} />
+          <UploadView onUploadClick={triggerFilePicker} onToast={toast} onUploadComplete={handleUploadComplete} />
         ) : (
           /* ---- Library card grid ---- */
           <DocumentLibrary

@@ -498,6 +498,82 @@ class GoogleDriveStorage(CloudStorage):
         return results
 
     # ------------------------------------------------------------------
+    # User file browsing (requires drive.readonly scope)
+    # ------------------------------------------------------------------
+
+    async def list_user_files(
+        self,
+        folder_id: str | None = None,
+        query: str | None = None,
+        page_token: str | None = None,
+        page_size: int = 50,
+    ) -> dict:
+        """List files in the user's Drive for browsing/importing.
+
+        If *folder_id* is given, lists files in that folder.
+        If *query* is given, searches by name across the entire Drive.
+        Otherwise lists files in the root ("My Drive").
+
+        Returns ``{"files": [...], "nextPageToken": str|None}``.
+        """
+        supported_mimes = (
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/pdf",
+            "text/markdown",
+            "text/plain",
+            "application/vnd.google-apps.folder",
+        )
+
+        if query:
+            # Full-text search across Drive — show matching docs + folders
+            q_parts = [
+                f"name contains '{query}'",
+                "trashed=false",
+            ]
+            q = " and ".join(q_parts)
+        elif folder_id:
+            q = f"'{folder_id}' in parents and trashed=false"
+        else:
+            q = "'root' in parents and trashed=false"
+
+        params: dict = {
+            "q": q,
+            "fields": "nextPageToken,files(id,name,mimeType,size,modifiedTime,iconLink)",
+            "pageSize": page_size,
+            "orderBy": "folder,name",
+        }
+        if page_token:
+            params["pageToken"] = page_token
+
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            resp = await client.get(
+                f"{DRIVE_API}/files",
+                headers=await self._headers(),
+                params=params,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+        # Filter to supported types (folders + supported docs)
+        files = []
+        for f in data.get("files", []):
+            mime = f.get("mimeType", "")
+            if mime in supported_mimes:
+                files.append({
+                    "id": f["id"],
+                    "name": f.get("name", ""),
+                    "mimeType": mime,
+                    "size": int(f.get("size", 0)) if f.get("size") else 0,
+                    "modifiedTime": f.get("modifiedTime", ""),
+                    "isFolder": mime == "application/vnd.google-apps.folder",
+                })
+
+        return {
+            "files": files,
+            "nextPageToken": data.get("nextPageToken"),
+        }
+
+    # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
