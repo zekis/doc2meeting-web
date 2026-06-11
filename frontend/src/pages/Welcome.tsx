@@ -1,7 +1,7 @@
 import Icon from "@mdi/react";
 import {
   mdiFileUploadOutline,
-  mdiRobotOutline,
+  mdiBookOpenPageVariantOutline,
   mdiHeadphones,
 } from "@mdi/js";
 
@@ -22,8 +22,8 @@ interface WelcomeScreenProps {
 
 const steps = [
   { icon: mdiFileUploadOutline, text: "Upload a document" },
-  { icon: mdiRobotOutline, text: "AI reviews it paragraph-by-paragraph" },
-  { icon: mdiHeadphones, text: "Listen to the review on the go" },
+  { icon: mdiBookOpenPageVariantOutline, text: "It's converted into an audiobook" },
+  { icon: mdiHeadphones, text: "Listen on the go" },
 ] as const;
 
 export function WelcomeScreen({ onUpload, onBrowse }: WelcomeScreenProps) {
@@ -41,9 +41,9 @@ export function WelcomeScreen({ onUpload, onBrowse }: WelcomeScreenProps) {
     <div className="flex items-center justify-center min-h-[80vh] px-4">
       <div className="flex flex-col items-center gap-8 max-w-md w-full text-center">
         <div>
-          <h1 className="text-2xl font-bold mb-2">Welcome to Doc2Meeting</h1>
+          <h1 className="text-2xl font-bold mb-2">Welcome to doc2meeting</h1>
           <p className="text-fg-muted text-sm">
-            Turn any document into an AI-powered review you can listen to.
+            Turn any document into an audiobook you can listen to anywhere.
           </p>
         </div>
 

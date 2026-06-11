@@ -4,13 +4,13 @@ import Icon from "@mdi/react";
 import {
   mdiCloudUploadOutline,
   mdiHeadphones,
-  mdiFileDocumentOutline,
+  mdiGoogleDrive,
   mdiApi,
   mdiCheckCircle,
-  mdiStar,
+  mdiBookOpenPageVariantOutline,
   mdiRocketLaunchOutline,
   mdiShieldCheckOutline,
-  mdiAccountGroupOutline,
+  mdiSpeedometer,
 } from "@mdi/js";
 
 const FEATURES = [
@@ -21,18 +21,18 @@ const FEATURES = [
   },
   {
     icon: mdiHeadphones,
-    title: "AI-Narrated Review",
-    desc: "Listen to expert AI reviewers discuss your document — on the train, walking, anywhere.",
+    title: "Listen Anywhere",
+    desc: "Turn any document into a narrated audiobook — listen on the train, walking, at the gym.",
   },
   {
-    icon: mdiFileDocumentOutline,
-    title: "Export as Notes",
-    desc: "Get structured review notes and actionable feedback you can share with your team.",
+    icon: mdiGoogleDrive,
+    title: "Google Drive Storage",
+    desc: "Your documents and audio are stored in your own Google Drive — you keep full control.",
   },
   {
     icon: mdiApi,
     title: "Developer API",
-    desc: "Integrate document review into your workflow. Send docs via API, receive audio via Telegram.",
+    desc: "Integrate document-to-audio into your workflow. Send docs via API, receive audio via Telegram.",
   },
 ];
 
@@ -45,9 +45,9 @@ const TIERS = [
     features: [
       "3 documents per month",
       "Up to 10 pages per document",
-      "AI reviewer commentary",
+      "Natural voice narration",
       "Audio playback with speed control",
-      "Google sign-in",
+      "Google Drive storage",
     ],
     cta: "Get Started",
   },
@@ -60,10 +60,10 @@ const TIERS = [
     features: [
       "50 documents per month",
       "Unlimited pages per document",
-      "Priority AI processing",
-      "Export reviews as notes",
-      "Email-to-review forwarding",
-      "Voice comments & annotations",
+      "Priority processing",
+      "Export notes & annotations",
+      "Email-to-audio forwarding",
+      "Voice comments on paragraphs",
     ],
     cta: "Start Free Trial",
   },
@@ -122,16 +122,16 @@ export function Login() {
       {/* ---- Hero ---- */}
       <section className="max-w-4xl mx-auto px-6 pt-20 pb-16 text-center">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-pill bg-accent/10 text-accent text-xs font-medium mb-6">
-          <Icon path={mdiRocketLaunchOutline} size={0.55} />
-          AI-Powered Document Review
+          <Icon path={mdiBookOpenPageVariantOutline} size={0.55} />
+          Document to Audiobook
         </div>
         <h1 className="text-4xl phone:text-5xl font-bold leading-tight mb-6">
-          Review documents
+          Turn documents into
           <br />
-          <span className="text-accent">while you move</span>
+          <span className="text-accent">audiobooks instantly</span>
         </h1>
         <p className="text-fg-muted text-lg max-w-2xl mx-auto mb-10 leading-relaxed">
-          Upload any document and let AI reviewers narrate expert feedback you can listen to
+          Upload any document and get a natural-sounding audiobook you can listen to
           on your commute, at the gym, or on a walk. Turn reading into listening.
         </p>
         <div className="flex flex-col phone:flex-row items-center justify-center gap-4">
@@ -155,13 +155,13 @@ export function Login() {
       <section className="max-w-5xl mx-auto px-6 py-16">
         <h2 className="text-2xl font-bold text-center mb-4">How it works</h2>
         <p className="text-fg-muted text-center mb-12 max-w-xl mx-auto">
-          Three steps from document to audio review
+          Three steps from document to audiobook
         </p>
         <div className="grid grid-cols-1 tablet:grid-cols-3 gap-8">
           {[
             { step: "1", title: "Upload", desc: "Drag & drop your Word, PDF, or Markdown file" },
-            { step: "2", title: "AI Reviews", desc: "Our AI reviewers analyze and narrate feedback" },
-            { step: "3", title: "Listen", desc: "Play the audio review anywhere — phone, desktop, car" },
+            { step: "2", title: "Convert", desc: "Your document is converted into natural-sounding audio" },
+            { step: "3", title: "Listen", desc: "Play your audiobook anywhere — phone, desktop, car" },
           ].map((s) => (
             <div key={s.step} className="text-center">
               <div className="w-12 h-12 rounded-full bg-accent/15 text-accent font-bold text-lg flex items-center justify-center mx-auto mb-4">
@@ -253,7 +253,7 @@ export function Login() {
           ))}
         </div>
         <p className="text-center text-fg-muted text-xs mt-6">
-          Team plan ($25/user/mo) coming soon — multi-user document review
+          Team plan ($25/user/mo) coming soon — shared document libraries
         </p>
       </section>
 
@@ -269,17 +269,17 @@ export function Login() {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <Icon path={mdiStar} size={1} className="text-accent" />
+              <Icon path={mdiSpeedometer} size={1} className="text-accent" />
               <div className="text-left">
-                <div className="font-semibold text-sm">AI-powered insights</div>
-                <div className="text-fg-muted text-xs">GPT-4o review & TTS narration</div>
+                <div className="font-semibold text-sm">Fast conversion</div>
+                <div className="text-fg-muted text-xs">Natural TTS narration in minutes</div>
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <Icon path={mdiAccountGroupOutline} size={1} className="text-accent" />
+              <Icon path={mdiGoogleDrive} size={1} className="text-accent" />
               <div className="text-left">
-                <div className="font-semibold text-sm">Built for teams</div>
-                <div className="text-fg-muted text-xs">Multi-user review coming soon</div>
+                <div className="font-semibold text-sm">Your data, your Drive</div>
+                <div className="text-fg-muted text-xs">Files stored in your Google Drive</div>
               </div>
             </div>
           </div>
