@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, AppSettings, AppSettingsPatch } from "../api";
+import { api, AppSettings, AppSettingsPatch, getDriveStatus, connectDrive, disconnectDrive, DriveStatus } from "../api";
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -11,6 +11,12 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  // Cloud storage state
+  const [driveStatus, setDriveStatus] = useState<DriveStatus | null>(null);
+  const [driveLoading, setDriveLoading] = useState(true);
+  const [driveError, setDriveError] = useState<string | null>(null);
+  const [disconnecting, setDisconnecting] = useState(false);
+
   useEffect(() => {
     (async () => {
       try {
@@ -21,7 +27,29 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
         setError((e as Error).message);
       }
     })();
+    (async () => {
+      try {
+        const status = await getDriveStatus();
+        setDriveStatus(status);
+      } catch (e) {
+        setDriveError((e as Error).message);
+      } finally {
+        setDriveLoading(false);
+      }
+    })();
   }, []);
+
+  const handleDisconnectDrive = async () => {
+    setDisconnecting(true);
+    try {
+      await disconnectDrive();
+      setDriveStatus({ connected: false, storage_provider: "local" });
+    } catch (e) {
+      setDriveError((e as Error).message);
+    } finally {
+      setDisconnecting(false);
+    }
+  };
 
   const dirty =
     !!settings &&
@@ -93,6 +121,40 @@ export function SettingsModal({ onClose }: SettingsModalProps) {
         ) : (
           <>
             <div className="modal-body settings-body">
+              {/* Cloud Storage section */}
+              <div className="settings-section-cloud">
+                <h3 className="settings-section-title">Cloud Storage</h3>
+                {driveLoading ? (
+                  <div className="settings-cloud-skeleton" />
+                ) : driveError ? (
+                  <p className="text-sm text-bad">{driveError}</p>
+                ) : driveStatus?.connected ? (
+                  <div className="settings-cloud-row">
+                    <span className="settings-cloud-status">
+                      <span className="settings-cloud-dot" />
+                      Connected to Google Drive
+                    </span>
+                    <button
+                      className="settings-cloud-disconnect"
+                      onClick={handleDisconnectDrive}
+                      disabled={disconnecting}
+                    >
+                      {disconnecting ? "Disconnecting..." : "Disconnect"}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="settings-cloud-row">
+                    <span className="text-sm text-fg-muted">Not connected</span>
+                    <button
+                      className="settings-cloud-connect"
+                      onClick={connectDrive}
+                    >
+                      Connect Google Drive
+                    </button>
+                  </div>
+                )}
+              </div>
+
               <div className="settings-grid">
                 <label className="settings-field">
                   <span>Narrator voice</span>

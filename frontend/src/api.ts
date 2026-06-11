@@ -468,6 +468,27 @@ export const billingApi = {
 };
 
 // ---------------------------------------------------------------------------
+// Cloud Storage (Google Drive) API
+// ---------------------------------------------------------------------------
+
+export interface DriveStatus {
+  connected: boolean;
+  storage_provider: string;
+}
+
+export async function getDriveStatus(): Promise<DriveStatus> {
+  return jsonOrThrow(await authFetch("/api/auth/drive/status"));
+}
+
+export function connectDrive(): void {
+  window.location.href = "/api/auth/drive/connect";
+}
+
+export async function disconnectDrive(): Promise<{ ok: boolean }> {
+  return sendJson("POST", "/api/auth/drive/disconnect");
+}
+
+// ---------------------------------------------------------------------------
 // Admin API
 // ---------------------------------------------------------------------------
 

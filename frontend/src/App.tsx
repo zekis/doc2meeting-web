@@ -65,6 +65,22 @@ export function App() {
     }
   };
 
+  // Handle Google Drive OAuth redirect params
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const driveConnected = params.get("drive_connected");
+    const driveError = params.get("drive_error");
+
+    if (driveConnected === "true") {
+      toast("success", "Google Drive connected successfully");
+      setSettingsOpen(true);
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (driveError) {
+      toast("error", `Failed to connect Google Drive: ${driveError}`);
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, [toast]);
+
   useEffect(() => {
     refreshTree();
     refreshRecents();

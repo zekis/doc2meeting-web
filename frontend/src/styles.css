@@ -1409,6 +1409,121 @@ button.link-btn {
   color: var(--err, #e57373);
   font-size: 0.85rem;
 }
+
+/* Cloud Storage section in Settings */
+.settings-section-cloud {
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0.25rem;
+}
+.settings-section-title {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+  margin: 0 0 0.5rem;
+}
+.settings-cloud-skeleton {
+  height: 2.25rem;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--bg-elev) 25%, var(--border) 50%, var(--bg-elev) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.settings-cloud-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.settings-cloud-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--fg);
+}
+.settings-cloud-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #4ade80;
+  flex-shrink: 0;
+}
+.settings-cloud-connect {
+  padding: 0.35rem 0.85rem;
+  border-radius: var(--radius-btn, 8px);
+  border: none;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+.settings-cloud-connect:hover { opacity: 0.85; }
+.settings-cloud-disconnect {
+  padding: 0.35rem 0.85rem;
+  border-radius: var(--radius-btn, 8px);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.settings-cloud-disconnect:hover {
+  color: var(--bad);
+  border-color: var(--bad);
+}
+.settings-cloud-disconnect:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Upload Drive banner */
+.upload-drive-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.65rem 0.85rem;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-btn, 8px);
+  margin-bottom: 1rem;
+}
+.upload-drive-banner-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.upload-drive-banner-link:hover { opacity: 0.8; }
+.upload-drive-banner-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--fg-muted);
+  cursor: pointer;
+  padding: 0.15rem;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.upload-drive-banner-close:hover { color: var(--fg); }
+
 .modal-foot {
   display: flex;
   justify-content: flex-end;
