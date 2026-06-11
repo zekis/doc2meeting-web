@@ -266,6 +266,26 @@ class GoogleDriveStorage(CloudStorage):
 
         return results
 
+    async def download_by_id(self, file_id: str) -> bytes:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                f"{DRIVE_API}/files/{file_id}",
+                headers=await self._headers(),
+                params={"alt": "media"},
+            )
+            resp.raise_for_status()
+        return resp.content
+
+    async def delete_by_id(self, file_id: str) -> None:
+        """Delete a file by its Drive file ID. No-op if already gone."""
+        async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+            resp = await client.delete(
+                f"{DRIVE_API}/files/{file_id}",
+                headers=await self._headers(),
+            )
+            if resp.status_code != 404:
+                resp.raise_for_status()
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------

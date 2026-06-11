@@ -40,12 +40,15 @@ class MockStorage(CloudStorage):
 
     def __init__(self):
         self._files: dict[str, bytes] = {}
+        self._id_map: dict[str, str] = {}  # file_id → path
 
     async def upload_file(self, path, data, mime_type="application/octet-stream"):
         raw = data if isinstance(data, bytes) else data.read()
         self._files[path] = raw
+        file_id = str(uuid.uuid4())
+        self._id_map[file_id] = path
         return StoredFile(
-            id=str(uuid.uuid4()),
+            id=file_id,
             name=path.rsplit("/", 1)[-1],
             mime_type=mime_type,
             size=len(raw),
@@ -54,6 +57,12 @@ class MockStorage(CloudStorage):
     async def download_file(self, path):
         if path not in self._files:
             raise FileNotFoundError(path)
+        return self._files[path]
+
+    async def download_by_id(self, file_id):
+        path = self._id_map.get(file_id)
+        if path is None or path not in self._files:
+            raise FileNotFoundError(file_id)
         return self._files[path]
 
     async def delete_file(self, path):

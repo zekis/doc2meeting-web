@@ -57,6 +57,10 @@ class CloudStorage(ABC):
     async def list_files(self, prefix: str = "") -> list[StoredFile]:
         """List files whose logical path starts with *prefix*."""
 
+    @abstractmethod
+    async def download_by_id(self, file_id: str) -> bytes:
+        """Download a file by its provider-specific ID (e.g. Drive file ID)."""
+
 
 # ---------------------------------------------------------------------------
 # Provider registry

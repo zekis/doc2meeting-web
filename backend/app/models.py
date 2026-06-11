@@ -68,6 +68,8 @@ class Document(SQLModel, table=True):
     user_id: Optional[str] = Field(
         default=None, foreign_key="user.id", index=True, max_length=36,
     )
+    # Phase A-2: Drive file ID of the uploaded document
+    drive_file_id: Optional[str] = Field(default=None, max_length=128)
 
     @property
     def context_paths(self) -> list[str]:
@@ -97,6 +99,11 @@ class Review(SQLModel, table=True):
     narrator_audio_path: Optional[str] = None
     reviewer_audio_path: Optional[str] = None
     response_audio_path: Optional[str] = None
+
+    # Phase A-2: Drive file IDs for audio stored in Google Drive
+    narrator_drive_id: Optional[str] = Field(default=None, max_length=128)
+    reviewer_drive_id: Optional[str] = Field(default=None, max_length=128)
+    response_drive_id: Optional[str] = Field(default=None, max_length=128)
 
     llm_input_tokens: int = 0
     llm_output_tokens: int = 0

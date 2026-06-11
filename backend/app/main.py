@@ -27,6 +27,7 @@ from .logging_config import setup_logging
 setup_logging()
 
 import io
+import logging
 import os
 import shutil
 from datetime import datetime
@@ -35,13 +36,13 @@ from typing import Any
 
 from openai import OpenAI
 
-from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from sqlmodel import Session, select
+from sqlmodel import Session, or_, select
 from starlette.middleware.sessions import SessionMiddleware
 
 from . import fs
@@ -56,8 +57,11 @@ from .drive_auth import router as drive_auth_router
 from .db import engine, get_session, init_db
 # Trigger storage provider registration on import
 from .storage import google_drive as _unused_gdrive  # noqa: F401
+from .storage.helpers import get_user_storage
 from .middleware import get_current_user, limiter, tier_limit
 from .models import AppSettings, Document, Review, ReviewStatus, UsageRecord, User, UserComment
+
+_log = logging.getLogger(__name__)
 from .pipeline import (
     SectionHistoryEntry,
     cost_usd,
@@ -281,12 +285,28 @@ async def upload_document(
     text = fs.read_text(rel_path)
     hash_now = fs.content_hash(text)
 
+    # Upload original to Google Drive if connected
+    drive_file_id: str | None = None
+    storage = get_user_storage(current_user)
+    if storage:
+        try:
+            mime = {".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    ".pdf": "application/pdf", ".md": "text/markdown"}.get(ext, "application/octet-stream")
+            stored = await storage.upload_file(
+                f"documents/{target.name}", content, mime,
+            )
+            drive_file_id = stored.id
+            _log.info("Uploaded document to Drive: %s (id=%s)", target.name, stored.id)
+        except Exception:
+            _log.warning("Drive upload failed for document %s", target.name, exc_info=True)
+
     with Session(engine) as session:
         doc = Document(
             rel_path=rel_path,
             content_hash=hash_now,
             user_id=current_user.id,
             last_opened_at=datetime.utcnow(),
+            drive_file_id=drive_file_id,
         )
         session.add(doc)
         session.commit()
@@ -417,17 +437,30 @@ def patch_document(doc_id: int, body: ContextBody, current_user: User = Depends(
         return _serialize_document(session, doc, text)
 
 
+# ---------- Document deletion ----------
+
 @app.delete("/api/documents/{doc_id}")
-def delete_document(doc_id: int, current_user: User = Depends(get_current_user)) -> dict:
-    """Delete a document, its reviews, audio files, and source file."""
+async def delete_document(
+    doc_id: int,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Delete a document and its associated reviews, local files, and Drive files."""
     with Session(engine) as session:
         doc = _get_user_doc(session, doc_id, current_user)
 
-        # Delete reviews
+        # Collect Drive file IDs to delete
+        drive_ids_to_delete: list[str] = []
+        if doc.drive_file_id:
+            drive_ids_to_delete.append(doc.drive_file_id)
+
         reviews = session.exec(
             select(Review).where(Review.document_id == doc_id)
         ).all()
         for r in reviews:
+            for field in ("narrator_drive_id", "reviewer_drive_id", "response_drive_id"):
+                did = getattr(r, field, None)
+                if did:
+                    drive_ids_to_delete.append(did)
             session.delete(r)
 
         # Delete usage records
@@ -444,7 +477,21 @@ def delete_document(doc_id: int, current_user: User = Depends(get_current_user))
         for uc in user_comments:
             session.delete(uc)
 
-        # Delete audio files
+        # Delete Drive files
+        storage = get_user_storage(current_user)
+        if storage and drive_ids_to_delete:
+            for did in drive_ids_to_delete:
+                try:
+                    await storage.delete_by_id(did)
+                except Exception:
+                    _log.warning("Failed to delete Drive file %s", did, exc_info=True)
+            # Also try to delete the audio folder for this doc
+            try:
+                await storage.delete_file(f"audio/{doc_id}")
+            except Exception:
+                pass
+
+        # Delete local audio directory for this document
         audio_dir = AUDIO_DIR / str(doc_id)
         if audio_dir.is_dir():
             shutil.rmtree(audio_dir, ignore_errors=True)
@@ -779,6 +826,7 @@ def generate_paragraph_review(
     auto_accept: bool = False,
     with_response: bool = False,
     current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
 ) -> dict:
     with Session(engine) as session:
         doc = _get_user_doc(session, doc_id, current_user)
@@ -874,6 +922,7 @@ def generate_paragraph_review(
             )
             session.refresh(review)
 
+        _schedule_audio_uploads(background_tasks, current_user, review)
         return _serialize_review(review)
 
 
@@ -995,19 +1044,33 @@ class ResolveBody(BaseModel):
 
 @app.post("/api/reviews/{review_id}/accept")
 @limiter.limit(tier_limit)
-def accept_review(request: Request, review_id: int, body: ResolveBody | None = None, current_user: User = Depends(get_current_user)) -> dict:
+def accept_review(
+    request: Request,
+    review_id: int,
+    body: ResolveBody | None = None,
+    current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+) -> dict:
     return _resolve_review(review_id, ReviewStatus.accepted,
                            (body.user_comment if body else None),
-                           current_user=current_user)
+                           current_user=current_user,
+                           background_tasks=background_tasks)
 
 
 @app.post("/api/reviews/{review_id}/reject")
 @limiter.limit(tier_limit)
-def reject_review(request: Request, review_id: int, body: ResolveBody | None = None, current_user: User = Depends(get_current_user)) -> dict:
+def reject_review(
+    request: Request,
+    review_id: int,
+    body: ResolveBody | None = None,
+    current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+) -> dict:
     return _resolve_review(review_id, ReviewStatus.rejected,
                            (body.user_comment if body else None),
                            REJECT_RESPONSE_TEXT,
-                           current_user=current_user)
+                           current_user=current_user,
+                           background_tasks=background_tasks)
 
 
 def _load_paragraph(
@@ -1035,6 +1098,7 @@ def _resolve_review(
     user_comment: str | None,
     response_text: str | None = None,
     current_user: User | None = None,
+    background_tasks: BackgroundTasks | None = None,
 ) -> dict:
     """Resolve a review (accept/reject).
 
@@ -1146,6 +1210,8 @@ def _resolve_review(
         session.add(review)
         session.commit()
         session.refresh(review)
+        if background_tasks and current_user:
+            _schedule_audio_uploads(background_tasks, current_user, review)
         return _serialize_review(review)
 
 
@@ -1191,6 +1257,7 @@ def stage_reviewer(
     paragraph_idx: int,
     persona: str = "skeptical",
     current_user: User = Depends(get_current_user),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
 ) -> dict:
     """Stage 2: ensure a Review row with reviewer comment + reviewer TTS.
 
@@ -1277,13 +1344,14 @@ def stage_reviewer(
         session.add(review)
         session.commit()
         session.refresh(review)
+        _schedule_audio_uploads(background_tasks, current_user, review)
         return _serialize_review(review)
 
 
 @app.post(
     "/api/documents/{doc_id}/sections/{section_idx}/paragraphs/{paragraph_idx}/response"
 )
-def stage_response(doc_id: int, section_idx: int, paragraph_idx: int, current_user: User = Depends(get_current_user)) -> dict:
+def stage_response(doc_id: int, section_idx: int, paragraph_idx: int, current_user: User = Depends(get_current_user), background_tasks: BackgroundTasks = BackgroundTasks()) -> dict:
     """Stage 3: ensure narrator response text + audio on an existing review.
 
     Idempotent — returns immediately if the response is already present.
@@ -1314,6 +1382,7 @@ def stage_response(doc_id: int, section_idx: int, paragraph_idx: int, current_us
             current_section_idx=section_idx,
         )
         session.refresh(review)
+        _schedule_audio_uploads(background_tasks, current_user, review)
         return _serialize_review(review)
 
 
@@ -1460,6 +1529,11 @@ def get_paragraph_narrator(doc_id: int, section_idx: int, paragraph_idx: int, cu
         if not (0 <= paragraph_idx < len(paragraphs)):
             raise HTTPException(404, "Paragraph index out of range")
 
+        # Check if a review already has this narrator audio on Drive
+        existing = _latest_review_for(session, doc_id, section_idx, paragraph_idx)
+        if existing and existing.narrator_audio_path and existing.narrator_drive_id:
+            return {"narrator_audio_url": f"/audio/{existing.narrator_audio_path}"}
+
         try:
             path, _chars = ensure_paragraph_narrator(
                 paragraphs[paragraph_idx], doc_id, section_idx, paragraph_idx
@@ -1537,15 +1611,130 @@ def patch_settings(body: SettingsPatch, current_user: User = Depends(get_current
         return _serialize_settings(s)
 
 
+# ---------- Audio → Drive background upload ----------
+
+async def _upload_audio_to_drive(
+    user_id: str,
+    review_id: int,
+    audio_rel_path: str,
+    drive_id_field: str,
+    delete_local: bool = True,
+) -> None:
+    """Background task: upload an audio file to Drive and record its file ID.
+
+    *drive_id_field* is the Review column to store the Drive ID in
+    (``narrator_drive_id``, ``reviewer_drive_id``, or ``response_drive_id``).
+
+    Narrator audio (content-hash-named) is kept locally as a cache; reviewer
+    and response audio (UUID-named, never re-checked) are deleted after upload.
+    """
+    try:
+        with Session(engine) as session:
+            user = session.get(User, user_id)
+            if not user:
+                return
+            storage = get_user_storage(user)
+            if not storage:
+                return
+            local = (AUDIO_DIR / audio_rel_path).resolve()
+            if not local.is_file():
+                return
+            data = local.read_bytes()
+            stored = await storage.upload_file(
+                f"audio/{audio_rel_path}", data, "audio/mpeg",
+            )
+            review = session.get(Review, review_id)
+            if review:
+                setattr(review, drive_id_field, stored.id)
+                session.add(review)
+                session.commit()
+            _log.info("Uploaded audio to Drive: %s → %s", audio_rel_path, stored.id)
+            # Delete local copy for non-narrator audio to save disk
+            if delete_local:
+                local.unlink(missing_ok=True)
+    except Exception:
+        _log.warning("Drive audio upload failed: %s", audio_rel_path, exc_info=True)
+
+
+def _schedule_audio_uploads(
+    background_tasks: BackgroundTasks,
+    user: User,
+    review: Review,
+) -> None:
+    """Schedule background Drive uploads for all audio files on a review."""
+    if not get_user_storage(user):
+        return
+    for path_field, id_field, keep_local in [
+        ("narrator_audio_path", "narrator_drive_id", True),
+        ("reviewer_audio_path", "reviewer_drive_id", False),
+        ("response_audio_path", "response_drive_id", False),
+    ]:
+        rel = getattr(review, path_field)
+        existing_id = getattr(review, id_field)
+        if rel and not existing_id:
+            background_tasks.add_task(
+                _upload_audio_to_drive,
+                user.id,
+                review.id,
+                rel,
+                id_field,
+                not keep_local,
+            )
+
+
+def _lookup_audio_drive_id(rel_path: str) -> tuple[str | None, User | None]:
+    """Find the Drive file ID and owning user for an audio rel_path."""
+    with Session(engine) as session:
+        review = session.exec(
+            select(Review).where(
+                or_(
+                    Review.narrator_audio_path == rel_path,
+                    Review.reviewer_audio_path == rel_path,
+                    Review.response_audio_path == rel_path,
+                )
+            )
+        ).first()
+        if not review:
+            return None, None
+        # Determine which drive ID matches
+        if review.narrator_audio_path == rel_path and review.narrator_drive_id:
+            drive_id = review.narrator_drive_id
+        elif review.reviewer_audio_path == rel_path and review.reviewer_drive_id:
+            drive_id = review.reviewer_drive_id
+        elif review.response_audio_path == rel_path and review.response_drive_id:
+            drive_id = review.response_drive_id
+        else:
+            return None, None
+        doc = session.get(Document, review.document_id)
+        user = session.get(User, doc.user_id) if doc and doc.user_id else None
+        return drive_id, user
+
+
 # ---------- Audio serving ----------
 
 @app.get("/audio/{rel_path:path}")
-def serve_audio(rel_path: str):
+async def serve_audio(rel_path: str):
     target = (AUDIO_DIR / rel_path).resolve()
     if AUDIO_DIR not in target.parents and target != AUDIO_DIR:
         raise HTTPException(400, "Invalid path")
-    if not target.is_file():
+    if target.is_file():
+        return FileResponse(target, media_type="audio/mpeg")
+
+    # Fallback: fetch from Google Drive if the file was uploaded there
+    drive_id, user = _lookup_audio_drive_id(rel_path)
+    if not drive_id or not user:
         raise HTTPException(404, "Audio not found")
+    storage = get_user_storage(user)
+    if not storage:
+        raise HTTPException(404, "Audio not found")
+    try:
+        data = await storage.download_by_id(drive_id)
+    except Exception:
+        _log.warning("Drive download failed for %s (id=%s)", rel_path, drive_id, exc_info=True)
+        raise HTTPException(502, "Failed to fetch audio from cloud storage")
+    # Cache locally so subsequent plays don't hit Drive again
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(data)
     return FileResponse(target, media_type="audio/mpeg")
 
 
