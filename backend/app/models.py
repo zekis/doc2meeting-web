@@ -34,6 +34,9 @@ class User(SQLModel, table=True):
     is_admin: bool = Field(default=False)
     suspended_at: Optional[datetime] = Field(default=None)
     google_sub: str = Field(unique=True, index=True, max_length=64)
+    # Cloud storage integration (Phase A-1)
+    storage_provider: str = Field(default="none", max_length=20)  # none|google_drive
+    drive_refresh_token: Optional[str] = Field(default=None, max_length=2048)  # Fernet-encrypted
     created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
 
 

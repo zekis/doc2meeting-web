@@ -52,7 +52,10 @@ from .email_inbound import router as email_router
 from .export import router as export_router
 from .health import router as health_router
 from .telegram import router as telegram_router
+from .drive_auth import router as drive_auth_router
 from .db import engine, get_session, init_db
+# Trigger storage provider registration on import
+from .storage import google_drive as _unused_gdrive  # noqa: F401
 from .middleware import get_current_user, limiter, tier_limit
 from .models import AppSettings, Document, Review, ReviewStatus, UsageRecord, User, UserComment
 from .pipeline import (
@@ -116,6 +119,9 @@ app.include_router(health_router)
 
 # Auth router (unprotected — login/register/refresh/logout)
 app.include_router(auth_router)
+
+# Drive OAuth consent router (connect/callback unprotected; status/disconnect require auth)
+app.include_router(drive_auth_router)
 
 # Billing router (checkout + billing info protected; webhooks unprotected)
 app.include_router(billing_router)
