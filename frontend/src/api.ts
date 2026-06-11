@@ -481,7 +481,9 @@ export async function getDriveStatus(): Promise<DriveStatus> {
 }
 
 export function connectDrive(): void {
-  window.location.href = "/api/auth/drive/connect";
+  const auth = localStorage.getItem("doc2meeting_auth");
+  const token = auth ? JSON.parse(auth).access_token : "";
+  window.location.href = `/api/auth/drive/connect?token=${encodeURIComponent(token)}`;
 }
 
 export async function disconnectDrive(): Promise<{ ok: boolean }> {

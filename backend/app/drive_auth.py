@@ -50,8 +50,36 @@ TIMEOUT = 10.0
 router = APIRouter(prefix="/api/auth/drive", tags=["drive-auth"])
 
 
+async def _get_user_from_token_param(
+    request: Request,
+    session: Session = Depends(get_session),
+) -> User:
+    """Get user from Bearer header OR ?token= query param (for browser redirects)."""
+    from .auth import decode_token
+
+    # Try header first
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        token = auth_header.split(" ", 1)[1]
+    else:
+        # Fall back to query parameter (needed for browser navigation)
+        token = request.query_params.get("token", "")
+
+    if not token:
+        raise HTTPException(401, detail="missing bearer token")
+
+    payload = decode_token(token)
+    if payload.get("type") != "access":
+        raise HTTPException(401, detail="wrong token type")
+
+    user = session.get(User, payload.get("sub", ""))
+    if not user:
+        raise HTTPException(401, detail="user not found")
+    return user
+
+
 @router.get("/connect")
-async def drive_connect(request: Request, user: User = Depends(get_current_user)):
+async def drive_connect(request: Request, user: User = Depends(_get_user_from_token_param)):
     """Redirect to Google consent screen requesting drive.file scope.
 
     Uses ``login_hint`` so Google pre-selects the user's account and
