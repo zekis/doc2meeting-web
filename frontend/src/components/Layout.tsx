@@ -31,8 +31,6 @@ const NAV_ITEMS: Array<{ key: NavTab; icon: string; label: string; adminOnly?: b
   { key: "library", icon: mdiBookOpenPageVariant, label: "Library" },
   { key: "upload", icon: mdiCloudUploadOutline, label: "Upload" },
   { key: "player", icon: mdiPlayCircleOutline, label: "Player" },
-  { key: "settings", icon: mdiCogOutline, label: "Settings" },
-  { key: "admin", icon: mdiShieldAccountOutline, label: "Admin", adminOnly: true },
 ];
 
 export function Layout({ children, activeTab = "library", onNavigate, isPlayerView, isRecording, onRecordToggle }: LayoutProps) {
@@ -118,6 +116,22 @@ export function Layout({ children, activeTab = "library", onNavigate, isPlayerVi
                   <Icon path={mdiAccountCircleOutline} size={0.7} className="text-fg-muted" />
                   Account
                 </button>
+                <button
+                  onClick={() => { setMenuOpen(false); onNavigate?.("settings"); }}
+                  className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-fg hover:bg-surface-elevated transition-colors"
+                >
+                  <Icon path={mdiCogOutline} size={0.7} className="text-fg-muted" />
+                  Settings
+                </button>
+                {isAdmin && (
+                  <button
+                    onClick={() => { setMenuOpen(false); onNavigate?.("admin"); }}
+                    className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-fg hover:bg-surface-elevated transition-colors"
+                  >
+                    <Icon path={mdiShieldAccountOutline} size={0.7} className="text-fg-muted" />
+                    Admin
+                  </button>
+                )}
                 <div className="h-px bg-border my-1" />
                 <button
                   onClick={() => { setMenuOpen(false); logout(); }}
