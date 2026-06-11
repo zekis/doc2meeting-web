@@ -1,0 +1,29 @@
+# Production override — uses pre-built images from ghcr.io instead of local builds.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+services:
+  backend:
+    image: ghcr.io/zekis/doc2meeting-web/backend:latest
+    build: !reset null
+    mem_limit: 512m
+    memswap_limit: 640m
+
+  worker:
+    image: ghcr.io/zekis/doc2meeting-web/backend:latest
+    build: !reset null
+    mem_limit: 1g
+    memswap_limit: 1280m
+
+  frontend:
+    image: ghcr.io/zekis/doc2meeting-web/frontend:latest
+    build: !reset null
+    mem_limit: 128m
+    memswap_limit: 192m
+
+  postgres:
+    mem_limit: 512m
+    memswap_limit: 640m
+
+  redis:
+    mem_limit: 256m
+    memswap_limit: 320m
