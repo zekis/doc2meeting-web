@@ -863,8 +863,9 @@ button.link-btn {
   color: var(--accent);
 }
 .para-action-btn.loading {
-  border-color: var(--warn);
-  color: var(--warn);
+  border-color: var(--accent);
+  color: var(--accent);
+  opacity: 0.7;
 }
 .para-action-btn:disabled {
   opacity: 0.3;
@@ -1751,8 +1752,15 @@ button.link-btn {
   color: var(--accent-fg);
 }
 .audio-player-btn-play.loading {
-  background: var(--warn);
-  animation: mic-pulse 1.5s infinite;
+  background: var(--accent);
+  opacity: 0.7;
+}
+.audio-player-btn-play.loading svg {
+  animation: player-spin 1s linear infinite;
+}
+@keyframes player-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 
 .audio-player-skip-label {
@@ -1995,6 +2003,12 @@ button.link-btn {
 }
 .mini-player-play-btn:hover {
   opacity: 0.85;
+}
+.mini-player-play-btn.loading {
+  opacity: 0.7;
+}
+.mini-player-play-btn.loading svg {
+  animation: player-spin 1s linear infinite;
 }
 
 /* ==========================================================================

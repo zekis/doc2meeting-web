@@ -14,6 +14,7 @@ import {
   mdiRewind,
   mdiFastForward,
   mdiPlaylistMusic,
+  mdiLoading,
 } from "@mdi/js";
 import { useAudioPlayer } from "./AudioPlayerContext";
 
@@ -116,7 +117,7 @@ export function AudioPlayerBar() {
             onClick={togglePlayPause}
             title={isPlaying ? "Pause" : "Play"}
           >
-            <Icon path={isPlaying ? mdiPause : mdiPlay} size={1.3} />
+            <Icon path={isLoading ? mdiLoading : isPlaying ? mdiPause : mdiPlay} size={1.3} />
           </button>
           <button
             className="audio-player-btn audio-player-btn-sm"

@@ -4,7 +4,7 @@
  */
 
 import Icon from "@mdi/react";
-import { mdiPlay, mdiPause } from "@mdi/js";
+import { mdiPlay, mdiPause, mdiLoading } from "@mdi/js";
 import { useAudioPlayer } from "./AudioPlayerContext";
 
 interface MiniPlayerProps {
@@ -27,6 +27,7 @@ export function MiniPlayer({ onExpand }: MiniPlayerProps) {
   const currentSection = sections.find((s) => s.sectionIdx === currentSectionIdx);
   const sectionTitle = currentSection?.title ?? "Loading...";
   const isPlaying = playbackState === "playing";
+  const isLoading = playbackState === "loading";
 
   return (
     <div className="mini-player" onClick={onExpand}>
@@ -49,14 +50,14 @@ export function MiniPlayer({ onExpand }: MiniPlayerProps) {
         </div>
 
         <button
-          className="mini-player-play-btn"
+          className={`mini-player-play-btn${isLoading ? " loading" : ""}`}
           onClick={(e) => {
             e.stopPropagation();
             togglePlayPause();
           }}
-          title={isPlaying ? "Pause" : "Play"}
+          title={isLoading ? "Loading..." : isPlaying ? "Pause" : "Play"}
         >
-          <Icon path={isPlaying ? mdiPause : mdiPlay} size={1} />
+          <Icon path={isLoading ? mdiLoading : isPlaying ? mdiPause : mdiPlay} size={1} />
         </button>
       </div>
     </div>
