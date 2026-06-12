@@ -1,23 +1,56 @@
 /**
- * Slide-up panel showing numbered sections with titles.
- * Current section highlighted, completed sections checkmarked. Tap to jump.
+ * Slide-up panel showing sections with expandable paragraphs.
+ * Current section/paragraph highlighted, completed sections checkmarked. Tap to jump.
  */
 
+import { useState, useEffect } from "react";
 import Icon from "@mdi/react";
-import { mdiCheck, mdiClose, mdiVolumeHigh } from "@mdi/js";
+import { mdiCheck, mdiClose, mdiVolumeHigh, mdiChevronDown, mdiChevronRight } from "@mdi/js";
 import { useAudioPlayer } from "./AudioPlayerContext";
+
+function truncateText(text: string, maxLen: number): string {
+  if (text.length <= maxLen) return text;
+  return text.slice(0, maxLen).trimEnd() + "...";
+}
 
 export function SectionListPanel() {
   const {
     sections,
     currentSectionIdx,
+    currentParagraphIdx,
     completedSections,
     sectionListOpen,
     setSectionListOpen,
     jumpToSection,
+    jumpToParagraph,
   } = useAudioPlayer();
 
+  // Track which sections are expanded — auto-expand current section
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+
+  // Auto-expand the current section when it changes
+  useEffect(() => {
+    setExpanded((prev) => {
+      if (prev.has(currentSectionIdx)) return prev;
+      const next = new Set(prev);
+      next.add(currentSectionIdx);
+      return next;
+    });
+  }, [currentSectionIdx]);
+
   if (!sectionListOpen) return null;
+
+  const toggleExpand = (sectionIdx: number) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(sectionIdx)) {
+        next.delete(sectionIdx);
+      } else {
+        next.add(sectionIdx);
+      }
+      return next;
+    });
+  };
 
   return (
     <div
@@ -44,29 +77,79 @@ export function SectionListPanel() {
           {sections.map((sec, i) => {
             const isCurrent = sec.sectionIdx === currentSectionIdx;
             const isCompleted = completedSections.has(sec.sectionIdx);
+            const isExpanded = expanded.has(sec.sectionIdx);
+            const hasParagraphs = sec.paragraphs.length > 1;
 
             return (
               <li key={sec.sectionIdx}>
-                <button
-                  className={`section-list-item ${isCurrent ? "active" : ""} ${isCompleted ? "completed" : ""}`}
-                  onClick={() => {
-                    jumpToSection(sec.sectionIdx);
-                    setSectionListOpen(false);
-                  }}
-                >
-                  <span className="section-list-num">
-                    {isCompleted ? (
-                      <Icon path={mdiCheck} size={0.65} />
-                    ) : isCurrent ? (
-                      <Icon path={mdiVolumeHigh} size={0.65} />
-                    ) : (
-                      i + 1
+                <div className="flex items-center">
+                  {/* Expand/collapse toggle */}
+                  {hasParagraphs ? (
+                    <button
+                      className="section-list-expand-btn"
+                      onClick={() => toggleExpand(sec.sectionIdx)}
+                      title={isExpanded ? "Collapse" : "Expand"}
+                    >
+                      <Icon path={isExpanded ? mdiChevronDown : mdiChevronRight} size={0.65} />
+                    </button>
+                  ) : (
+                    <span className="section-list-expand-spacer" />
+                  )}
+
+                  {/* Section button */}
+                  <button
+                    className={`section-list-item flex-1 ${isCurrent ? "active" : ""} ${isCompleted ? "completed" : ""}`}
+                    onClick={() => {
+                      jumpToSection(sec.sectionIdx);
+                      setSectionListOpen(false);
+                    }}
+                  >
+                    <span className="section-list-num">
+                      {isCompleted ? (
+                        <Icon path={mdiCheck} size={0.65} />
+                      ) : isCurrent ? (
+                        <Icon path={mdiVolumeHigh} size={0.65} />
+                      ) : (
+                        i + 1
+                      )}
+                    </span>
+                    <span className="section-list-title truncate">
+                      {sec.title}
+                    </span>
+                    {hasParagraphs && (
+                      <span className="section-list-para-count">
+                        {sec.paragraphs.length}
+                      </span>
                     )}
-                  </span>
-                  <span className="section-list-title truncate">
-                    {sec.title}
-                  </span>
-                </button>
+                  </button>
+                </div>
+
+                {/* Paragraph sub-list */}
+                {hasParagraphs && isExpanded && (
+                  <ol className="section-list-paragraphs">
+                    {sec.paragraphs.map((para, pIdx) => {
+                      const isCurrentPara = isCurrent && currentParagraphIdx === pIdx;
+                      return (
+                        <li key={pIdx}>
+                          <button
+                            className={`section-list-para-item ${isCurrentPara ? "active" : ""}`}
+                            onClick={() => {
+                              jumpToParagraph(sec.sectionIdx, pIdx);
+                              setSectionListOpen(false);
+                            }}
+                          >
+                            {isCurrentPara && (
+                              <Icon path={mdiVolumeHigh} size={0.5} className="section-list-para-icon" />
+                            )}
+                            <span className="section-list-para-text">
+                              {truncateText(para, 80)}
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                )}
               </li>
             );
           })}

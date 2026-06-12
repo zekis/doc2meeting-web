@@ -50,6 +50,7 @@ export interface SectionPlayInfo {
   title: string;
   duration: number | null; // seconds, null if unknown
   completed: boolean;
+  paragraphs: string[];
 }
 
 export interface AudioPlayerState {
@@ -94,6 +95,8 @@ export interface AudioPlayerActions {
   skipBackward: (seconds?: number) => void;
   /** Jump to a specific section. */
   jumpToSection: (sectionIdx: number) => void;
+  /** Jump to a specific paragraph within a section. */
+  jumpToParagraph: (sectionIdx: number, paragraphIdx: number) => void;
   /** Go to next section. */
   nextSection: () => void;
   /** Go to previous section. */
@@ -549,6 +552,35 @@ export function AudioPlayerProvider({ children }: Props) {
       playParagraph(d, sectionIdx, 0, epoch);
     },
 
+    jumpToParagraph: (sectionIdx: number, paragraphIdx: number) => {
+      const d = docRef.current;
+      if (!d) return;
+      const sec = d.sections.find((s) => s.idx === sectionIdx);
+      if (!sec) return;
+      if (paragraphIdx < 0 || paragraphIdx >= sec.paragraphs.length) return;
+
+      epochRef.current++;
+      const audio = audioRef.current;
+      if (audio) {
+        audio.onended = null;
+        audio.pause();
+      }
+
+      prefetchTriggeredRef.current = null;
+      prefetchSection(d, sectionIdx);
+
+      const epoch = ++epochRef.current;
+      setCurrentSectionIdx(sectionIdx);
+      setCurrentParagraphIdx(paragraphIdx);
+      sectionIdxRef.current = sectionIdx;
+      paragraphIdxRef.current = paragraphIdx;
+      setProgress(0);
+      setCurrentTime(0);
+
+      updateMediaSession(d, sec);
+      playParagraph(d, sectionIdx, paragraphIdx, epoch);
+    },
+
     nextSection: () => {
       const d = docRef.current;
       if (!d) return;
@@ -668,6 +700,7 @@ export function AudioPlayerProvider({ children }: Props) {
       title: s.title || `Section ${s.idx + 1}`,
       duration: null, // We don't know durations until audio loads
       completed: completedSections.has(s.idx),
+      paragraphs: s.paragraphs,
     }));
   }, [doc, completedSections]);
 

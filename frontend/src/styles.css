@@ -1937,6 +1937,84 @@ button.link-btn {
   min-width: 0;
 }
 
+.section-list-expand-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.4rem;
+  height: 1.4rem;
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  border-radius: 4px;
+  transition: background 0.1s;
+}
+.section-list-expand-btn:hover {
+  background: var(--bg-elev);
+}
+.section-list-expand-spacer {
+  display: inline-block;
+  width: 1.4rem;
+  flex-shrink: 0;
+}
+
+.section-list-para-count {
+  font-size: 0.65rem;
+  color: var(--fg-muted);
+  background: var(--bg-elev);
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+.section-list-item.active .section-list-para-count {
+  background: rgba(0, 0, 0, 0.2);
+  color: var(--accent-fg);
+}
+
+.section-list-paragraphs {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 0.25rem 1.4rem;
+}
+
+.section-list-para-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--fg-muted);
+  padding: 0.35rem 0.65rem;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.section-list-para-item:hover {
+  background: var(--bg-elev);
+  color: var(--fg);
+}
+.section-list-para-item.active {
+  background: rgba(78, 205, 196, 0.12);
+  color: var(--accent);
+}
+
+.section-list-para-icon {
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+}
+
+.section-list-para-text {
+  flex: 1;
+  min-width: 0;
+}
+
 /* ==========================================================================
    Mini Player
    ========================================================================== */
