@@ -51,6 +51,8 @@ export interface SectionPlayInfo {
   duration: number | null; // seconds, null if unknown
   completed: boolean;
   paragraphs: string[];
+  /** Paragraph indices that already have narrator TTS audio. */
+  narratorParagraphs: Set<number>;
 }
 
 export interface AudioPlayerState {
@@ -701,6 +703,11 @@ export function AudioPlayerProvider({ children }: Props) {
       duration: null, // We don't know durations until audio loads
       completed: completedSections.has(s.idx),
       paragraphs: s.paragraphs,
+      narratorParagraphs: new Set(
+        s.reviews
+          .filter((r) => r.narrator_audio_url)
+          .map((r) => r.paragraph_idx)
+      ),
     }));
   }, [doc, completedSections]);
 

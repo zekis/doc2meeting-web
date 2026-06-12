@@ -5,7 +5,7 @@
 
 import { useState, useEffect } from "react";
 import Icon from "@mdi/react";
-import { mdiCheck, mdiClose, mdiVolumeHigh, mdiChevronDown, mdiChevronRight } from "@mdi/js";
+import { mdiCheck, mdiClose, mdiVolumeHigh, mdiVolumeMedium, mdiChevronDown, mdiChevronRight } from "@mdi/js";
 import { useAudioPlayer } from "./AudioPlayerContext";
 
 /** Strip markdown syntax for plain-text previews. */
@@ -146,6 +146,7 @@ export function SectionListPanel() {
                   <ol className="section-list-paragraphs">
                     {sec.paragraphs.map((para, pIdx) => {
                       const isCurrentPara = isCurrent && currentParagraphIdx === pIdx;
+                      const hasAudio = sec.narratorParagraphs.has(pIdx);
                       return (
                         <li key={pIdx}>
                           <button
@@ -155,9 +156,11 @@ export function SectionListPanel() {
                               setSectionListOpen(false);
                             }}
                           >
-                            {isCurrentPara && (
-                              <Icon path={mdiVolumeHigh} size={0.5} className="section-list-para-icon" />
-                            )}
+                            <Icon
+                              path={isCurrentPara ? mdiVolumeHigh : mdiVolumeMedium}
+                              size={0.45}
+                              className={`section-list-para-icon ${hasAudio ? "has-audio" : "no-audio"}`}
+                            />
                             <span className="section-list-para-text">
                               {truncateText(para, 80)}
                             </span>

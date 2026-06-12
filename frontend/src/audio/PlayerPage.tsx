@@ -20,6 +20,7 @@ import {
   mdiDownload,
   mdiMicrophone,
   mdiVolumeHigh,
+  mdiVolumeMedium,
 } from "@mdi/js";
 import { useAudioPlayer } from "./AudioPlayerContext";
 import { AudioPlayerBar } from "./AudioPlayerBar";
@@ -309,15 +310,18 @@ export function PlayerPage({ onBack, onRecordingStateChange }: PlayerPageProps) 
                       <ol className="section-list-paragraphs">
                         {sec.paragraphs.map((para, pIdx) => {
                           const isCurrentPara = isCurrent && currentParagraphIdx === pIdx;
+                          const hasAudio = sec.narratorParagraphs.has(pIdx);
                           return (
                             <li key={pIdx}>
                               <button
                                 className={`section-list-para-item ${isCurrentPara ? "active" : ""}`}
                                 onClick={() => jumpToParagraph(sec.sectionIdx, pIdx)}
                               >
-                                {isCurrentPara && (
-                                  <Icon path={mdiVolumeHigh} size={0.5} className="section-list-para-icon" />
-                                )}
+                                <Icon
+                                  path={isCurrentPara ? mdiVolumeHigh : hasAudio ? mdiVolumeMedium : mdiVolumeMedium}
+                                  size={0.45}
+                                  className={`section-list-para-icon ${hasAudio ? "has-audio" : "no-audio"}`}
+                                />
                                 <span className="section-list-para-text">
                                   {stripMarkdown(para).slice(0, 80)}
                                   {stripMarkdown(para).length > 80 ? "..." : ""}
