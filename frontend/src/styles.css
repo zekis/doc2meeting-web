@@ -1976,9 +1976,9 @@ button.link-btn {
 
 .section-list-paragraphs {
   list-style: none;
-  padding: 0;
-  margin: 0 0 0.25rem 0;
-  padding-left: 2.6rem;
+  padding: 0.25rem 0 0.25rem 0.75rem;
+  margin: 0.15rem 0 0.25rem 1.8rem;
+  border-left: 2px solid var(--border);
 }
 
 .section-list-para-item {
