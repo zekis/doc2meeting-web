@@ -1655,9 +1655,10 @@ async def voice_comment(
 @app.post(
     "/api/documents/{doc_id}/sections/{section_idx}/paragraphs/{paragraph_idx}/narrator"
 )
-def get_paragraph_narrator(doc_id: int, section_idx: int, paragraph_idx: int, current_user: User = Depends(get_current_user)) -> dict:
+def get_paragraph_narrator(doc_id: int, section_idx: int, paragraph_idx: int, background_tasks: BackgroundTasks = BackgroundTasks(), current_user: User = Depends(get_current_user)) -> dict:
     """Ensure narrator audio exists for one paragraph and return its URL.
-    Idempotent — re-uses the cached file when the paragraph text is unchanged."""
+    Idempotent — re-uses the cached file when the paragraph text is unchanged.
+    Schedules a background upload to Google Drive when connected."""
     with Session(engine) as session:
         doc = _get_user_doc(session, doc_id, current_user)
         try:
@@ -1683,7 +1684,31 @@ def get_paragraph_narrator(doc_id: int, section_idx: int, paragraph_idx: int, cu
             )
         except Exception as e:
             raise HTTPException(500, f"TTS failed: {e}")
-        return {"narrator_audio_url": f"/audio/{relative_audio_path(path)}"}
+
+        rel = relative_audio_path(path)
+
+        # Persist the narrator audio path on the review record so Drive
+        # upload can find it.  Create a minimal review if none exists yet.
+        review = existing
+        if review:
+            if review.narrator_audio_path != rel:
+                review.narrator_audio_path = rel
+                review.narrator_drive_id = None  # reset so re-upload triggers
+        else:
+            review = Review(
+                document_id=doc_id,
+                section_idx=section_idx,
+                paragraph_idx=paragraph_idx,
+                comment="",
+                narrator_audio_path=rel,
+            )
+        session.add(review)
+        session.commit()
+        session.refresh(review)
+
+        _schedule_audio_uploads(background_tasks, current_user, review)
+
+        return {"narrator_audio_url": f"/audio/{rel}"}
 
 
 # ---------- App settings ----------
