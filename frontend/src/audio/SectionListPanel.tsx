@@ -8,9 +8,26 @@ import Icon from "@mdi/react";
 import { mdiCheck, mdiClose, mdiVolumeHigh, mdiChevronDown, mdiChevronRight } from "@mdi/js";
 import { useAudioPlayer } from "./AudioPlayerContext";
 
+/** Strip markdown syntax for plain-text previews. */
+function stripMarkdown(md: string): string {
+  return md
+    .replace(/!\[.*?\]\(.*?\)/g, "")       // images
+    .replace(/\[([^\]]*)\]\(.*?\)/g, "$1")  // links → text
+    .replace(/(`{1,3})(.*?)\1/g, "$2")      // inline code
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")     // headings
+    .replace(/(\*{1,3}|_{1,3})(.*?)\1/g, "$2") // bold/italic
+    .replace(/~~(.*?)~~/g, "$1")            // strikethrough
+    .replace(/^\s*[-*+]\s+/gm, "")          // unordered lists
+    .replace(/^\s*\d+\.\s+/gm, "")          // ordered lists
+    .replace(/^\s*>\s?/gm, "")              // blockquotes
+    .replace(/\n{2,}/g, " ")                // collapse newlines
+    .trim();
+}
+
 function truncateText(text: string, maxLen: number): string {
-  if (text.length <= maxLen) return text;
-  return text.slice(0, maxLen).trimEnd() + "...";
+  const plain = stripMarkdown(text);
+  if (plain.length <= maxLen) return plain;
+  return plain.slice(0, maxLen).trimEnd() + "...";
 }
 
 export function SectionListPanel() {

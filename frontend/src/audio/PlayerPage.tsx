@@ -13,6 +13,8 @@ import Icon from "@mdi/react";
 import {
   mdiArrowLeft,
   mdiCheck,
+  mdiChevronDown,
+  mdiChevronRight,
   mdiClose,
   mdiDelete,
   mdiDownload,
@@ -37,6 +39,22 @@ function renderMarkdown(md: string): string {
   return DOMPurify.sanitize(marked.parse(md, { async: false }) as string);
 }
 
+/** Strip markdown syntax for plain-text previews (nav sidebar, section list). */
+function stripMarkdown(md: string): string {
+  return md
+    .replace(/!\[.*?\]\(.*?\)/g, "")       // images
+    .replace(/\[([^\]]*)\]\(.*?\)/g, "$1")  // links → text
+    .replace(/(`{1,3})(.*?)\1/g, "$2")      // inline code
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")     // headings
+    .replace(/(\*{1,3}|_{1,3})(.*?)\1/g, "$2") // bold/italic
+    .replace(/~~(.*?)~~/g, "$1")            // strikethrough
+    .replace(/^\s*[-*+]\s+/gm, "")          // unordered lists
+    .replace(/^\s*\d+\.\s+/gm, "")          // ordered lists
+    .replace(/^\s*>\s?/gm, "")              // blockquotes
+    .replace(/\n{2,}/g, " ")                // collapse newlines
+    .trim();
+}
+
 /** Group comments by "sectionIdx-paragraphIdx" key */
 function commentsByParagraph(comments: UserCommentData[]): Map<string, UserCommentData[]> {
   const map = new Map<string, UserCommentData[]>();
@@ -58,9 +76,32 @@ export function PlayerPage({ onBack, onRecordingStateChange }: PlayerPageProps) 
     sections,
     completedSections,
     jumpToSection,
+    jumpToParagraph,
   } = useAudioPlayer();
 
   const contentRef = useRef<HTMLDivElement>(null);
+
+  // Desktop sidebar: track which sections are expanded
+  const [sidebarExpanded, setSidebarExpanded] = useState<Set<number>>(new Set());
+
+  // Auto-expand current section in sidebar
+  useEffect(() => {
+    setSidebarExpanded((prev) => {
+      if (prev.has(currentSectionIdx)) return prev;
+      const next = new Set(prev);
+      next.add(currentSectionIdx);
+      return next;
+    });
+  }, [currentSectionIdx]);
+
+  const toggleSidebarExpand = useCallback((sectionIdx: number) => {
+    setSidebarExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(sectionIdx)) next.delete(sectionIdx);
+      else next.add(sectionIdx);
+      return next;
+    });
+  }, []);
   const paragraphRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const hasScrolledRef = useRef(false);
 
@@ -215,7 +256,7 @@ export function PlayerPage({ onBack, onRecordingStateChange }: PlayerPageProps) 
 
       {/* Body: two-pane on desktop, single pane on mobile */}
       <div className="player-page-body">
-        {/* Desktop sidebar — inline section list */}
+        {/* Desktop sidebar — inline section list with paragraph expansion */}
         <div className="player-page-sidebar">
           <div className="player-sidebar-sections">
             <h3>Sections</h3>
@@ -223,25 +264,70 @@ export function PlayerPage({ onBack, onRecordingStateChange }: PlayerPageProps) 
               {sections.map((sec, i) => {
                 const isCurrent = sec.sectionIdx === currentSectionIdx;
                 const isCompleted = completedSections.has(sec.sectionIdx);
+                const isExpanded = sidebarExpanded.has(sec.sectionIdx);
+                const hasParagraphs = sec.paragraphs.length > 1;
+
                 return (
                   <li key={sec.sectionIdx}>
-                    <button
-                      className={`section-list-item ${isCurrent ? "active" : ""} ${isCompleted ? "completed" : ""}`}
-                      onClick={() => jumpToSection(sec.sectionIdx)}
-                    >
-                      <span className="section-list-num">
-                        {isCompleted ? (
-                          <Icon path={mdiCheck} size={0.65} />
-                        ) : isCurrent ? (
-                          <Icon path={mdiVolumeHigh} size={0.65} />
-                        ) : (
-                          i + 1
+                    <div className="flex items-center">
+                      {hasParagraphs ? (
+                        <button
+                          className="section-list-expand-btn"
+                          onClick={() => toggleSidebarExpand(sec.sectionIdx)}
+                          title={isExpanded ? "Collapse" : "Expand"}
+                        >
+                          <Icon path={isExpanded ? mdiChevronDown : mdiChevronRight} size={0.65} />
+                        </button>
+                      ) : (
+                        <span className="section-list-expand-spacer" />
+                      )}
+                      <button
+                        className={`section-list-item flex-1 ${isCurrent ? "active" : ""} ${isCompleted ? "completed" : ""}`}
+                        onClick={() => jumpToSection(sec.sectionIdx)}
+                      >
+                        <span className="section-list-num">
+                          {isCompleted ? (
+                            <Icon path={mdiCheck} size={0.65} />
+                          ) : isCurrent ? (
+                            <Icon path={mdiVolumeHigh} size={0.65} />
+                          ) : (
+                            i + 1
+                          )}
+                        </span>
+                        <span className="section-list-title truncate">
+                          {sec.title}
+                        </span>
+                        {hasParagraphs && (
+                          <span className="section-list-para-count">
+                            {sec.paragraphs.length}
+                          </span>
                         )}
-                      </span>
-                      <span className="section-list-title truncate">
-                        {sec.title}
-                      </span>
-                    </button>
+                      </button>
+                    </div>
+
+                    {hasParagraphs && isExpanded && (
+                      <ol className="section-list-paragraphs">
+                        {sec.paragraphs.map((para, pIdx) => {
+                          const isCurrentPara = isCurrent && currentParagraphIdx === pIdx;
+                          return (
+                            <li key={pIdx}>
+                              <button
+                                className={`section-list-para-item ${isCurrentPara ? "active" : ""}`}
+                                onClick={() => jumpToParagraph(sec.sectionIdx, pIdx)}
+                              >
+                                {isCurrentPara && (
+                                  <Icon path={mdiVolumeHigh} size={0.5} className="section-list-para-icon" />
+                                )}
+                                <span className="section-list-para-text">
+                                  {stripMarkdown(para).slice(0, 80)}
+                                  {stripMarkdown(para).length > 80 ? "..." : ""}
+                                </span>
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ol>
+                    )}
                   </li>
                 );
               })}
