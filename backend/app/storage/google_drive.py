@@ -1,8 +1,8 @@
 """Google Drive storage backend (Drive API v3, ``drive.file`` scope).
 
-Creates a ``doc2audiobook/`` folder tree in the user's Drive:
+Creates a ``Doc2Audioz/`` folder tree in the user's Drive:
 
-    doc2audiobook/
+    Doc2Audioz/
     └── <Document Name>/
         ├── <Document Name>.md
         ├── chapter-01.mp3
@@ -128,7 +128,7 @@ class GoogleDriveStorage(CloudStorage):
 
         Returns the Drive folder ID for the deepest segment.
         """
-        root_id = await self._ensure_folder("doc2audiobook")
+        root_id = await self._ensure_folder("Doc2Audioz")
         parts = [p for p in path.split("/") if p]
         parent = root_id
         for part in parts:
@@ -151,7 +151,7 @@ class GoogleDriveStorage(CloudStorage):
         else:
             folder_path, filename = "", parts[0]
 
-        folder_id = await self._resolve_folder_path(folder_path) if folder_path else await self._ensure_folder("doc2audiobook")
+        folder_id = await self._resolve_folder_path(folder_path) if folder_path else await self._ensure_folder("Doc2Audioz")
 
         raw = data if isinstance(data, bytes) else data.read()
 
@@ -221,7 +221,7 @@ class GoogleDriveStorage(CloudStorage):
                 resp.raise_for_status()
 
     async def list_files(self, prefix: str = "") -> list[StoredFile]:
-        root_id = await self._ensure_folder("doc2audiobook")
+        root_id = await self._ensure_folder("Doc2Audioz")
 
         # If a prefix targets a subfolder, resolve it
         if prefix:
@@ -294,8 +294,8 @@ class GoogleDriveStorage(CloudStorage):
     # ------------------------------------------------------------------
 
     async def ensure_document_folder(self, doc_name: str) -> str:
-        """Create/find ``doc2audiobook/<doc_name>/`` and return its folder ID."""
-        root_id = await self._ensure_folder("doc2audiobook")
+        """Create/find ``Doc2Audioz/<doc_name>/`` and return its folder ID."""
+        root_id = await self._ensure_folder("Doc2Audioz")
         return await self._ensure_folder(doc_name, root_id)
 
     async def upload_to_document_folder(
@@ -305,7 +305,7 @@ class GoogleDriveStorage(CloudStorage):
         data: bytes,
         mime_type: str = "application/octet-stream",
     ) -> StoredFile:
-        """Upload a file into ``doc2audiobook/<doc_name>/<filename>``."""
+        """Upload a file into ``Doc2Audioz/<doc_name>/<filename>``."""
         folder_id = await self.ensure_document_folder(doc_name)
 
         # Check for existing file with same name and overwrite (update)
@@ -313,7 +313,7 @@ class GoogleDriveStorage(CloudStorage):
         if existing_id:
             return await self._update_file(existing_id, data, mime_type)
 
-        boundary = "doc2audiobook_boundary"
+        boundary = "Doc2Audioz_boundary"
         meta_json = json.dumps({"name": filename, "parents": [folder_id]})
         body = (
             f"--{boundary}\r\n"
@@ -356,11 +356,11 @@ class GoogleDriveStorage(CloudStorage):
         )
 
     async def list_document_folders(self) -> list[dict[str, str]]:
-        """List all document folders under ``doc2audiobook/``.
+        """List all document folders under ``Doc2Audioz/``.
 
         Returns list of ``{"id": ..., "name": ...}`` dicts.
         """
-        root_id = await self._ensure_folder("doc2audiobook")
+        root_id = await self._ensure_folder("Doc2Audioz")
         results: list[dict[str, str]] = []
         page_token: str | None = None
 
@@ -399,7 +399,7 @@ class GoogleDriveStorage(CloudStorage):
 
     async def delete_document_folder(self, doc_name: str) -> None:
         """Delete an entire document folder and all its contents."""
-        root_id = await self._ensure_folder("doc2audiobook")
+        root_id = await self._ensure_folder("Doc2Audioz")
         folder_id = await self._find_folder(doc_name, root_id)
         if not folder_id:
             return
@@ -589,7 +589,7 @@ class GoogleDriveStorage(CloudStorage):
             if folder_path:
                 folder_id = await self._resolve_folder_path(folder_path)
             else:
-                folder_id = await self._ensure_folder("doc2audiobook")
+                folder_id = await self._ensure_folder("Doc2Audioz")
         except httpx.HTTPStatusError:
             return None
 

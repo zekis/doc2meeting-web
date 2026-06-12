@@ -41,7 +41,7 @@ export function WelcomeScreen({ onUpload, onBrowse }: WelcomeScreenProps) {
     <div className="flex items-center justify-center min-h-[80vh] px-4">
       <div className="flex flex-col items-center gap-8 max-w-md w-full text-center">
         <div>
-          <h1 className="text-2xl font-bold mb-2">Welcome to doc2meeting</h1>
+          <h1 className="text-2xl font-bold mb-2">Welcome to Doc2Audioz</h1>
           <p className="text-fg-muted text-sm">
             Turn any document into an audiobook you can listen to anywhere.
           </p>

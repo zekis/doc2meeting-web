@@ -108,7 +108,7 @@ export function Login() {
       <header className="sticky top-0 z-30 bg-bg/80 backdrop-blur-md border-b border-border">
         <div className="max-w-6xl mx-auto flex items-center justify-between px-6 py-4">
           <span className="text-accent font-bold text-xl tracking-tight">
-            doc2meeting
+            Doc2Audioz
           </span>
           <a
             href="/api/auth/google/login"
@@ -303,10 +303,10 @@ export function Login() {
 
       {/* ---- Footer ---- */}
       <footer className="max-w-6xl mx-auto px-6 py-10 flex flex-col tablet:flex-row items-center justify-between gap-4 text-fg-muted text-xs">
-        <span className="text-accent font-bold text-sm">doc2meeting</span>
+        <span className="text-accent font-bold text-sm">Doc2Audioz</span>
         <div className="flex items-center gap-4">
           <a href="/privacy" className="hover:text-accent transition-colors">Privacy Policy</a>
-          <span>&copy; {new Date().getFullYear()} doc2meeting. All rights reserved.</span>
+          <span>&copy; {new Date().getFullYear()} Doc2Audioz. All rights reserved.</span>
         </div>
       </footer>
     </div>

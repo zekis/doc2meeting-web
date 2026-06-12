@@ -67,7 +67,7 @@ export function Layout({ children, activeTab = "library", onNavigate, isPlayerVi
       {/* ---- Top bar ---- */}
       <header className="flex items-center gap-3 px-4 py-2.5 bg-surface border-b border-border min-h-[3rem] shrink-0">
         <span className="text-accent font-bold text-lg tracking-tight select-none">
-          doc2meeting
+          Doc2Audioz
         </span>
 
         {/* Desktop nav (>1024px) */}

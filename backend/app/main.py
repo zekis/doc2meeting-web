@@ -100,7 +100,7 @@ AUDIO_DIR = Path(os.environ.get("AUDIO_DIR", "./data/audio")).resolve()
 # for "the user disagreed with the critique"; that's a decision, not a reply.
 REJECT_RESPONSE_TEXT = "Acknowledged. Moving on as written."
 
-app = FastAPI(title="doc2meeting-web")
+app = FastAPI(title="Doc2Audioz")
 
 # SessionMiddleware required by authlib for OAuth state parameter
 _session_secret = os.environ.get("SESSION_SECRET_KEY", "dev-session-secret-change-me")
@@ -361,7 +361,7 @@ async def drive_import(
     """Import a file from the user's Google Drive into the library.
 
     Downloads the file, converts to markdown if needed, saves locally,
-    and copies to the app's doc2audiobook folder on Drive.
+    and copies to the app's Doc2Audioz folder on Drive.
     """
     storage = get_user_storage(current_user)
     if not storage:
@@ -422,7 +422,7 @@ async def drive_import(
     text = fs.read_text(rel_path)
     hash_now = fs.content_hash(text)
 
-    # Copy to app's doc2audiobook folder on Drive
+    # Copy to app's Doc2Audioz folder on Drive
     drive_file_id: str | None = None
     doc_name = Path(rel_path).stem
     if hasattr(storage, "upload_to_document_folder"):
@@ -1793,7 +1793,7 @@ async def _upload_audio_to_drive(
     *drive_id_field* is the Review column to store the Drive ID in
     (``narrator_drive_id``, ``reviewer_drive_id``, or ``response_drive_id``).
 
-    Audio is uploaded into the per-document folder: ``doc2audiobook/<doc_name>/``.
+    Audio is uploaded into the per-document folder: ``Doc2Audioz/<doc_name>/``.
     Narrator audio (content-hash-named) is kept locally as a cache; reviewer
     and response audio (UUID-named, never re-checked) are deleted after upload.
     """

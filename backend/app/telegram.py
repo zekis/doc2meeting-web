@@ -1,6 +1,6 @@
 """Telegram bot integration — reference implementation.
 
-Demonstrates how to use the doc2meeting API via a Telegram bot:
+Demonstrates how to use the Doc2Audioz API via a Telegram bot:
 - /start: Register/link Telegram user
 - /review <url_or_id>: Check review status
 - /export <doc_id>: Get structured notes as a message
@@ -123,7 +123,7 @@ async def _handle_start(chat_id: int, message: dict):
     name = from_user.get("first_name", "there")
 
     await _send_message(chat_id, (
-        f"👋 Hi {name}! Welcome to *doc2meeting*.\n\n"
+        f"👋 Hi {name}! Welcome to *Doc2Audioz*.\n\n"
         "I can help you check review status and export notes for your documents.\n\n"
         "To link your account, use the API with your Telegram chat ID:\n"
         f"`{chat_id}`\n\n"
@@ -253,7 +253,7 @@ async def _handle_export(chat_id: int, text: str):
 async def _handle_help(chat_id: int):
     """Handle /help — show available commands."""
     await _send_message(chat_id, (
-        "📖 *doc2meeting Bot Commands*\n\n"
+        "📖 *Doc2Audioz Bot Commands*\n\n"
         "/start — Get started & link account\n"
         "/status — Check your account info\n"
         "/review <doc\\_id> — Review summary\n"

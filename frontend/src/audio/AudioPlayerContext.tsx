@@ -363,7 +363,7 @@ export function AudioPlayerProvider({ children }: Props) {
     if (!("mediaSession" in navigator)) return;
     navigator.mediaSession.metadata = new MediaMetadata({
       title: section.title || `Section ${section.idx + 1}`,
-      artist: "doc2meeting",
+      artist: "Doc2Audioz",
       album: d.name,
     });
   }

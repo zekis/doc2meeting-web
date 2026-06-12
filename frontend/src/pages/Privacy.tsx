@@ -6,7 +6,7 @@ export function Privacy() {
       <header className="sticky top-0 z-30 bg-bg/80 backdrop-blur-md border-b border-border">
         <div className="max-w-6xl mx-auto flex items-center justify-between px-6 py-4">
           <Link to="/login" className="text-accent font-bold text-xl tracking-tight">
-            doc2meeting
+            Doc2Audioz
           </Link>
         </div>
       </header>
@@ -19,7 +19,7 @@ export function Privacy() {
           <section>
             <h2 className="text-lg font-semibold text-fg mb-3">Overview</h2>
             <p>
-              doc2meeting converts your documents into audiobooks. We are committed to
+              Doc2Audioz converts your documents into audiobooks. We are committed to
               protecting your privacy and being transparent about how your data is handled.
               The short version: <strong className="text-fg">we don't store your documents or audio files
               on our servers.</strong>
@@ -134,7 +134,7 @@ export function Privacy() {
       </main>
 
       <footer className="max-w-6xl mx-auto px-6 py-10 flex items-center justify-center text-fg-muted text-xs">
-        <span>&copy; {new Date().getFullYear()} doc2meeting. All rights reserved.</span>
+        <span>&copy; {new Date().getFullYear()} Doc2Audioz. All rights reserved.</span>
       </footer>
     </div>
   );
