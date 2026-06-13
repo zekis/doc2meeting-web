@@ -2471,6 +2471,35 @@ button.secondary:hover {
   font-style: italic;
 }
 
+/* Narrating bubble with inline controls */
+.meeting-msg-narration {
+  border-left: 2px solid var(--accent);
+  opacity: 0.85;
+}
+.meeting-narration-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--fg-muted);
+  font-size: 0.8rem;
+}
+.icon-btn-sm {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  transition: color 0.15s, border-color 0.15s;
+}
+.icon-btn-sm:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 .meeting-dots {
   display: inline-flex;
   gap: 3px;

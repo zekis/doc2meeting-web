@@ -20,6 +20,7 @@ import {
   mdiPhoneHangup,
   mdiPlay,
   mdiReplay,
+  mdiSkipNext,
 } from "@mdi/js";
 import { useAudioPlayer } from "./AudioPlayerContext";
 import { useVoiceInput } from "../useVoiceInput";
@@ -66,6 +67,11 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
   const docRef = useRef(doc);
   docRef.current = doc;
 
+  // Epoch counter — incremented on pause/end to cancel stale async callbacks
+  const meetingEpochRef = useRef(0);
+  // Whether audio was paused due to ambient noise (not speech)
+  const noisePausedRef = useRef(false);
+
   // Track current position — meeting manages its own position
   const sectionIdxRef = useRef(0);
   const paragraphIdxRef = useRef(0);
@@ -108,6 +114,25 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
       narrationAudioRef.current = null;
     }
     setIsNarrating(false);
+  }, []);
+
+  // Stop ALL audio (narration + response) — prevents overlap, ensures clean state
+  const stopAllAudio = useCallback(() => {
+    narrationEpochRef.current++;
+    if (narrationAudioRef.current) {
+      narrationAudioRef.current.onended = null;
+      narrationAudioRef.current.onerror = null;
+      narrationAudioRef.current.pause();
+      narrationAudioRef.current = null;
+    }
+    if (responseAudioRef.current) {
+      responseAudioRef.current.onended = null;
+      responseAudioRef.current.onerror = null;
+      responseAudioRef.current.pause();
+      responseAudioRef.current = null;
+    }
+    setIsNarrating(false);
+    noisePausedRef.current = false;
   }, []);
 
   // Play narrator audio for a specific paragraph, auto-advancing when done
@@ -214,23 +239,30 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
 
   // Play AI response audio, then handle tool action
   const playResponseAudio = useCallback((audioUrl: string, reply: MeetingReply) => {
+    const epoch = meetingEpochRef.current;
+    // Stop any playing audio first to prevent overlap
+    stopAllAudio();
+    // Restore epoch (stopAllAudio increments narration epoch, not meeting epoch)
     const audio = new Audio(audioUrl);
     responseAudioRef.current = audio;
     setMeetingState("agent_responding");
 
     audio.onended = () => {
+      if (meetingEpochRef.current !== epoch) return; // stale
       responseAudioRef.current = null;
       handleToolAction(reply);
     };
     audio.onerror = () => {
+      if (meetingEpochRef.current !== epoch) return;
       responseAudioRef.current = null;
       handleToolAction(reply);
     };
     audio.play().catch(() => {
+      if (meetingEpochRef.current !== epoch) return;
       responseAudioRef.current = null;
       handleToolAction(reply);
     });
-  }, [handleToolAction]);
+  }, [handleToolAction, stopAllAudio]);
 
   // Resume paused narration audio (used when detected audio is noise, not speech)
   const resumeNarration = useCallback(() => {
@@ -260,11 +292,13 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
   // Process captured audio from VAD — uses streaming endpoint for faster response
   const handleAudioCaptured = useCallback(async (blob: Blob) => {
     if (!sessionIdRef.current) return;
+    const epoch = meetingEpochRef.current;
     setMeetingState("processing");
 
     try {
       // Transcribe via Whisper
       const { text } = await api.transcribe(blob);
+      if (meetingEpochRef.current !== epoch) return; // meeting ended/paused
       if (!text.trim()) {
         resumeNarration();
         return;
@@ -294,6 +328,7 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
         paragraphIdxRef.current,
         // onText — arrives as soon as LLM finishes (before TTS)
         (reply) => {
+          if (meetingEpochRef.current !== epoch) return; // stale
           if (!reply.reply && !reply.tool_action) {
             // Noise — remove user message and resume
             setMessages(prev => prev.filter(m => m.id !== msgId));
@@ -326,6 +361,7 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
         },
         // onAudio — arrives when TTS finishes
         (audioUrl) => {
+          if (meetingEpochRef.current !== epoch) return; // stale
           if (!pendingReply) return;
           if (audioUrl) {
             playResponseAudio(audioUrl, pendingReply);
@@ -335,14 +371,16 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
         },
       );
     } catch (e) {
+      if (meetingEpochRef.current !== epoch) return;
       setError((e as Error).message);
       resumeNarration();
     }
   }, [playResponseAudio, handleToolAction, resumeNarration]);
 
-  // Pause all audio when user starts speaking — pause narration (keep ref for
+  // Stop all audio when user starts speaking — pause narration (keep ref for
   // potential resume if it turns out to be noise), destroy response audio
   const handleSpeechStart = useCallback(() => {
+    noisePausedRef.current = false;
     // Cancel in-flight narration fetches but keep playing audio ref for resume
     narrationEpochRef.current++;
     if (narrationAudioRef.current) {
@@ -364,14 +402,8 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
   const handleUserNavigation = useCallback(async (sectionIdx: number, paragraphIdx: number) => {
     if (!sessionIdRef.current || !docRef.current) return;
 
-    // Stop current narration & response audio
-    stopNarration();
-    if (responseAudioRef.current) {
-      responseAudioRef.current.onended = null;
-      responseAudioRef.current.onerror = null;
-      responseAudioRef.current.pause();
-      responseAudioRef.current = null;
-    }
+    // Stop all audio cleanly
+    stopAllAudio();
 
     // Update position
     sectionIdxRef.current = sectionIdx;
@@ -436,20 +468,15 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
       setMeetingState("listening");
       playNarrationRef.current(sectionIdx, paragraphIdx);
     }
-  }, [stopNarration, setPosition, playResponseAudio]);
+  }, [stopAllAudio, setPosition, playResponseAudio]);
 
   // Pause / unpause the meeting
   const pauseMeeting = useCallback(() => {
-    stopNarration();
-    if (responseAudioRef.current) {
-      responseAudioRef.current.onended = null;
-      responseAudioRef.current.onerror = null;
-      responseAudioRef.current.pause();
-      responseAudioRef.current = null;
-    }
+    meetingEpochRef.current++;
+    stopAllAudio();
     setMicEnabled(false);
     setMeetingState("paused");
-  }, [stopNarration]);
+  }, [stopAllAudio]);
 
   const unpauseMeeting = useCallback(() => {
     setMicEnabled(true);
@@ -457,11 +484,61 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
     playNarrationRef.current(sectionIdxRef.current, paragraphIdxRef.current);
   }, []);
 
+  // Noise-aware pause: any elevated noise temporarily pauses narration/agent audio
+  const handleNoise = useCallback((isNoisy: boolean) => {
+    const st = meetingStateRef.current;
+    if (st !== "listening" && st !== "agent_responding") return;
+
+    if (isNoisy) {
+      noisePausedRef.current = true;
+      if (narrationAudioRef.current && !narrationAudioRef.current.paused) {
+        narrationAudioRef.current.pause();
+      }
+      if (responseAudioRef.current && !responseAudioRef.current.paused) {
+        responseAudioRef.current.pause();
+      }
+    } else if (noisePausedRef.current) {
+      noisePausedRef.current = false;
+      // Only resume if state hasn't changed (speech detection hasn't taken over)
+      const currentSt = meetingStateRef.current;
+      if (currentSt === "listening" && narrationAudioRef.current?.paused) {
+        setIsNarrating(true);
+        narrationAudioRef.current.play().catch(() => {});
+      }
+      if (currentSt === "agent_responding" && responseAudioRef.current?.paused) {
+        responseAudioRef.current.play().catch(() => {});
+      }
+    }
+  }, []);
+
+  // Narration-only controls for the narrating bubble
+  const pauseNarrationOnly = useCallback(() => {
+    if (narrationAudioRef.current && !narrationAudioRef.current.paused) {
+      narrationAudioRef.current.pause();
+      setIsNarrating(false);
+    }
+  }, []);
+
+  const resumeNarrationOnly = useCallback(() => {
+    if (narrationAudioRef.current && narrationAudioRef.current.paused) {
+      setIsNarrating(true);
+      narrationAudioRef.current.play().catch(() => {});
+    } else {
+      playNarrationRef.current(sectionIdxRef.current, paragraphIdxRef.current);
+    }
+  }, []);
+
+  const skipParagraph = useCallback(() => {
+    stopNarration();
+    playNarrationRef.current(sectionIdxRef.current, paragraphIdxRef.current + 1);
+  }, [stopNarration]);
+
   // VAD hook — enabled when meeting is active (user can always interrupt)
   const voiceInput = useVoiceInput({
     enabled: micEnabled && meetingState !== "idle" && meetingState !== "ended" && meetingState !== "starting" && meetingState !== "paused",
     onAudioCaptured: handleAudioCaptured,
     onSpeechStart: handleSpeechStart,
+    onNoise: handleNoise,
   });
 
   // Play a greeting audio then enable mic + start narration at given position
@@ -582,11 +659,8 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
 
   // End meeting
   const endMeeting = useCallback(async () => {
-    stopNarration();
-    if (responseAudioRef.current) {
-      responseAudioRef.current.pause();
-      responseAudioRef.current = null;
-    }
+    meetingEpochRef.current++;
+    stopAllAudio();
     setMicEnabled(false);
 
     if (sessionId) {
@@ -597,7 +671,7 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
       }
     }
     setMeetingState("ended");
-  }, [sessionId, stopNarration]);
+  }, [sessionId, stopAllAudio]);
 
   // Export notes
   const handleExport = useCallback(async () => {
@@ -626,11 +700,8 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
     // Cleanup on unmount
     return () => {
       setNavigationInterceptor(null);
-      stopNarration();
-      if (responseAudioRef.current) {
-        responseAudioRef.current.pause();
-        responseAudioRef.current = null;
-      }
+      meetingEpochRef.current++;
+      stopAllAudio();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -701,6 +772,36 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
             <div className="meeting-msg-content">{msg.content}</div>
           </div>
         ))}
+        {/* Narrating bubble — shows during narration with pause/skip controls */}
+        {meetingState === "listening" && (
+          <div className="meeting-msg meeting-msg-narration">
+            <div className="meeting-msg-label">Doc</div>
+            <div className="meeting-msg-content meeting-narration-controls">
+              {isNarrating ? (
+                <>
+                  <span className="meeting-dots"><span /><span /><span /></span>
+                  <span>Narrating...</span>
+                  <button className="icon-btn-sm" onClick={pauseNarrationOnly} title="Pause narration">
+                    <Icon path={mdiPause} size={0.55} />
+                  </button>
+                  <button className="icon-btn-sm" onClick={skipParagraph} title="Skip paragraph">
+                    <Icon path={mdiSkipNext} size={0.55} />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span>Narration paused</span>
+                  <button className="icon-btn-sm" onClick={resumeNarrationOnly} title="Resume narration">
+                    <Icon path={mdiPlay} size={0.55} />
+                  </button>
+                  <button className="icon-btn-sm" onClick={skipParagraph} title="Skip paragraph">
+                    <Icon path={mdiSkipNext} size={0.55} />
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        )}
         {(meetingState === "processing" || meetingState === "agent_responding") && (
           <div className="meeting-msg meeting-msg-assistant">
             <div className="meeting-msg-label">Doc</div>

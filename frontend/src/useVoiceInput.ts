@@ -28,6 +28,9 @@ interface VoiceInputOptions {
   /** Awaited; while running the hook stays in `processing`. */
   onAudioCaptured: (blob: Blob) => Promise<void>;
   onSpeechStart?: () => void;
+  /** Fires when ambient noise crosses the noise threshold (lower than speech).
+   *  true = noise started, false = noise ended (after debounce). */
+  onNoise?: (isNoisy: boolean) => void;
 }
 
 export interface VoiceInputControls {
@@ -41,13 +44,15 @@ export interface VoiceInputControls {
 // higher than the silence threshold so the hook hysteresis-resists fluttering.
 const SPEECH_START_RMS = 0.02;
 const SILENCE_RMS = 0.015;
+const NOISE_RMS = 0.01;        // lower than speech — any ambient noise
+const NOISE_END_MS = 500;      // noise must drop for this long before "quiet"
 const SILENCE_MS = 1500;
 const FFT_SIZE = 1024;
 const MIN_RECORDING_MS = 400; // ignore micro-pops shorter than this
 const PRE_BUFFER_MAX_MS = 10_000; // restart pre-buffer every 10s to bound silence
 
 export function useVoiceInput(opts: VoiceInputOptions): VoiceInputControls {
-  const { enabled, onAudioCaptured, onSpeechStart } = opts;
+  const { enabled, onAudioCaptured, onSpeechStart, onNoise } = opts;
 
   const [state, setState] = useState<VoiceInputState>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +66,8 @@ export function useVoiceInput(opts: VoiceInputOptions): VoiceInputControls {
   onAudioCapturedRef.current = onAudioCaptured;
   const onSpeechStartRef = useRef(onSpeechStart);
   onSpeechStartRef.current = onSpeechStart;
+  const onNoiseRef = useRef(onNoise);
+  onNoiseRef.current = onNoise;
 
   const streamRef = useRef<MediaStream | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
@@ -161,6 +168,8 @@ export function useVoiceInput(opts: VoiceInputOptions): VoiceInputControls {
     const buf = new Float32Array(analyser.fftSize);
     let silenceStart: number | null = null;
     let speechStartedAt = 0;
+    let isNoisy = false;
+    let noiseEndStart: number | null = null;
 
     const tick = () => {
       if (!enabledRef.current || !analyserRef.current) return;
@@ -171,6 +180,23 @@ export function useVoiceInput(opts: VoiceInputOptions): VoiceInputControls {
       setLevel(rms);
 
       const now = performance.now();
+
+      // Noise detection — fires during ANY state (including processing)
+      if (rms > NOISE_RMS) {
+        noiseEndStart = null;
+        if (!isNoisy) {
+          isNoisy = true;
+          onNoiseRef.current?.(true);
+        }
+      } else if (isNoisy) {
+        if (noiseEndStart === null) noiseEndStart = now;
+        else if (now - noiseEndStart >= NOISE_END_MS) {
+          isNoisy = false;
+          noiseEndStart = null;
+          onNoiseRef.current?.(false);
+        }
+      }
+
       const cur = stateRef.current;
 
       if (cur === "listening") {
@@ -223,16 +249,28 @@ export function useVoiceInput(opts: VoiceInputOptions): VoiceInputControls {
       chunksRef.current = [];
       recorderRef.current = null;
 
-      setState("processing");
+      // Restart pre-buffer IMMEDIATELY so mic is ready for next utterance.
+      // This prevents the "first speech missed" bug where getUserMedia latency
+      // caused a gap between processing-complete and mic-ready.
+      if (enabledRef.current && streamRef.current) {
+        beginPreBuffer();
+        setState("listening");
+      }
+
       try {
         await onAudioCapturedRef.current(blob);
       } catch (e) {
         setError((e as Error).message);
       } finally {
-        if (enabledRef.current) {
-          setState("listening");
-          beginPreBuffer();
-        } else {
+        if (!enabledRef.current) {
+          // Disabled during processing — clean up pre-buffer we started above
+          const rec = recorderRef.current as MediaRecorder | null;
+          if (rec && rec.state === "recording") {
+            rec.ondataavailable = () => {};
+            rec.onstop = () => {};
+            rec.stop();
+          }
+          recorderRef.current = null;
           setState("idle");
         }
       }
