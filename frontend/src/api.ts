@@ -430,6 +430,64 @@ export const api = {
 };
 
 // ---------------------------------------------------------------------------
+// Virtual Meeting API
+// ---------------------------------------------------------------------------
+
+export interface MeetingStartResult {
+  session_id: string;
+  intro_message: string;
+  intro_audio_url: string | null;
+}
+
+export interface MeetingReply {
+  reply: string;
+  tool_action: string | null;
+  target_section_idx: number | null;
+  target_paragraph_idx: number | null;
+  audio_url: string | null;
+}
+
+export interface MeetingMessageData {
+  id: number;
+  role: "user" | "assistant" | "system";
+  content: string;
+  section_idx: number;
+  paragraph_idx: number;
+  tool_action: string | null;
+  audio_url: string | null;
+  created_at: string;
+}
+
+export const meetingApi = {
+  startMeeting: async (docId: number): Promise<MeetingStartResult> =>
+    sendJson("POST", `/api/meetings/${docId}/start`),
+
+  sendMessage: async (
+    sessionId: string,
+    text: string,
+    sectionIdx: number,
+    paragraphIdx: number,
+  ): Promise<MeetingReply> =>
+    sendJson("POST", `/api/meetings/${sessionId}/message`, {
+      text,
+      section_idx: sectionIdx,
+      paragraph_idx: paragraphIdx,
+    }),
+
+  getMeetingNotes: async (sessionId: string): Promise<MeetingMessageData[]> =>
+    jsonOrThrow(await authFetch(`/api/meetings/${sessionId}/notes`)),
+
+  endMeeting: async (sessionId: string): Promise<{ status: string }> =>
+    sendJson("POST", `/api/meetings/${sessionId}/end`),
+
+  exportMeetingNotes: async (sessionId: string): Promise<string> => {
+    const res = await authFetch(`/api/meetings/${sessionId}/notes/export`);
+    if (!res.ok) throw new Error(`Export failed: ${res.status}`);
+    return res.text();
+  },
+};
+
+// ---------------------------------------------------------------------------
 // Billing API
 // ---------------------------------------------------------------------------
 

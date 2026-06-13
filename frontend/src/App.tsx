@@ -1,9 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import Icon from "@mdi/react";
-import {
-  mdiArrowLeft,
-  mdiPaperclip,
-} from "@mdi/js";
 import {
   api,
   DocumentDetail,
@@ -212,26 +207,11 @@ export function App() {
 
   const isPlayerView = activeTab === "player" && openDoc;
 
-  // Recording state — pushed up from PlayerPage for the nav bar mic button
-  const [isRecording, setIsRecording] = useState(false);
-  const recordToggleRef = useRef<(() => void) | null>(null);
-
-  const handleRecordingStateChange = useCallback((recording: boolean, toggle: () => void) => {
-    setIsRecording(recording);
-    recordToggleRef.current = toggle;
-  }, []);
-
-  const handleRecordToggle = useCallback(() => {
-    recordToggleRef.current?.();
-  }, []);
-
   return (
     <Layout
       activeTab={isPlayerView ? "player" : activeTab}
       onNavigate={handleNavigate}
       isPlayerView={!!isPlayerView}
-      isRecording={isRecording}
-      onRecordToggle={handleRecordToggle}
     >
       <DropZone
         ref={dropZoneRef}
@@ -253,7 +233,7 @@ export function App() {
 
         {isPlayerView ? (
           /* ---- Audio Player view ---- */
-          <PlayerPage onBack={handleBackToLibrary} onRecordingStateChange={handleRecordingStateChange} />
+          <PlayerPage onBack={handleBackToLibrary} />
         ) : showOnboarding ? (
           /* ---- First-time onboarding ---- */
           <WelcomeScreen

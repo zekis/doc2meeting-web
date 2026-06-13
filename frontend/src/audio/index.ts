@@ -3,4 +3,4 @@ export { AudioPlayerBar } from "./AudioPlayerBar";
 export { SectionListPanel } from "./SectionListPanel";
 export { MiniPlayer } from "./MiniPlayer";
 export { PlayerPage } from "./PlayerPage";
-export { useSpeechRecognition, isSpeechSupported } from "./useSpeechRecognition";
+export { MeetingPanel } from "./MeetingPanel";

@@ -5,6 +5,8 @@ Tables:
 - RefreshToken: JWT refresh token revocation tracking
 - Document: markdown files opened for review (user-scoped)
 - Review: per-paragraph reviewer feedback
+- MeetingSession: virtual meeting sessions on documents
+- MeetingMessage: individual messages within a meeting
 - AppSettings: singleton app configuration
 """
 
@@ -126,6 +128,41 @@ class UserComment(SQLModel, table=True):
     paragraph_idx: int = Field(default=0)
     user_id: str = Field(foreign_key="user.id", index=True, max_length=36)
     text: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+# ---------- Virtual Meeting models ----------
+
+class MeetingSession(SQLModel, table=True):
+    """A virtual meeting session on a document."""
+    __tablename__ = "meeting_session"
+
+    id: str = Field(
+        default_factory=lambda: str(uuid.uuid4()),
+        primary_key=True,
+        max_length=36,
+    )
+    document_id: int = Field(foreign_key="document.id", index=True)
+    user_id: str = Field(foreign_key="user.id", index=True, max_length=36)
+    current_section_idx: int = Field(default=0)
+    current_paragraph_idx: int = Field(default=0)
+    status: str = Field(default="active", max_length=20)  # active | ended
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    ended_at: Optional[datetime] = Field(default=None)
+
+
+class MeetingMessage(SQLModel, table=True):
+    """A single message in a meeting conversation thread."""
+    __tablename__ = "meeting_message"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    session_id: str = Field(foreign_key="meeting_session.id", index=True, max_length=36)
+    role: str = Field(max_length=20)  # "user" | "assistant" | "system"
+    content: str
+    section_idx: int = Field(default=0)
+    paragraph_idx: int = Field(default=0)
+    tool_action: Optional[str] = Field(default=None, max_length=50)
+    audio_path: Optional[str] = Field(default=None)
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 

@@ -54,12 +54,13 @@ from .export import router as export_router
 from .health import router as health_router
 from .telegram import router as telegram_router
 from .drive_auth import router as drive_auth_router
+from .meeting import router as meeting_router
 from .db import engine, get_session, init_db
 # Trigger storage provider registration on import
 from .storage import google_drive as _unused_gdrive  # noqa: F401
 from .storage.helpers import get_user_storage
 from .middleware import get_current_user, limiter, tier_limit
-from .models import AppSettings, Document, Review, ReviewStatus, UsageRecord, User, UserComment
+from .models import AppSettings, Document, MeetingMessage, MeetingSession, Review, ReviewStatus, UsageRecord, User, UserComment
 
 _log = logging.getLogger(__name__)
 from .pipeline import (
@@ -141,6 +142,9 @@ app.include_router(email_router)
 
 # Telegram bot router (webhook unprotected; setup requires admin)
 app.include_router(telegram_router)
+
+# Virtual meeting router (all routes require auth)
+app.include_router(meeting_router)
 
 
 # ---------- Auth helpers for route protection ----------
