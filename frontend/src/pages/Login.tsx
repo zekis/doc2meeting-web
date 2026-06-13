@@ -11,9 +11,17 @@ import {
   mdiRocketLaunchOutline,
   mdiShieldCheckOutline,
   mdiSpeedometer,
+  mdiPhone,
+  mdiMicrophone,
+  mdiAccountVoice,
 } from "@mdi/js";
 
 const FEATURES = [
+  {
+    icon: mdiPhone,
+    title: "Virtual Meeting Review",
+    desc: "Join a live AI-facilitated meeting to review your document section by section. Ask questions, skip ahead, or dive deeper — hands-free.",
+  },
   {
     icon: mdiCloudUploadOutline,
     title: "Drag & Drop Upload",
@@ -23,6 +31,11 @@ const FEATURES = [
     icon: mdiHeadphones,
     title: "Listen Anywhere",
     desc: "Turn any document into a narrated audiobook — listen on the train, walking, at the gym.",
+  },
+  {
+    icon: mdiMicrophone,
+    title: "Voice-First Interaction",
+    desc: "Talk naturally during meetings. The AI pauses when you speak and responds to your questions in real time.",
   },
   {
     icon: mdiGoogleDrive,
@@ -46,6 +59,7 @@ const TIERS = [
       "3 documents per month",
       "Up to 10 pages per document",
       "Natural voice narration",
+      "Virtual meeting review",
       "Audio playback with speed control",
       "Google Drive storage",
     ],
@@ -60,10 +74,10 @@ const TIERS = [
     features: [
       "50 documents per month",
       "Unlimited pages per document",
+      "Unlimited meeting sessions",
       "Priority processing",
-      "Export notes & annotations",
+      "Export meeting notes & annotations",
       "Email-to-audio forwarding",
-      "Voice comments on paragraphs",
     ],
     cta: "Start Free Trial",
   },
@@ -122,17 +136,18 @@ export function Login() {
       {/* ---- Hero ---- */}
       <section className="max-w-4xl mx-auto px-6 pt-20 pb-16 text-center">
         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-pill bg-accent/10 text-accent text-xs font-medium mb-6">
-          <Icon path={mdiBookOpenPageVariantOutline} size={0.55} />
-          Document to Audiobook
+          <Icon path={mdiAccountVoice} size={0.55} />
+          Document Review &amp; Virtual Meetings
         </div>
         <h1 className="text-4xl phone:text-5xl font-bold leading-tight mb-6">
-          Turn documents into
+          Review documents with
           <br />
-          <span className="text-accent">audiobooks instantly</span>
+          <span className="text-accent">an AI meeting facilitator</span>
         </h1>
         <p className="text-fg-muted text-lg max-w-2xl mx-auto mb-10 leading-relaxed">
-          Upload any document and get a natural-sounding audiobook you can listen to
-          on your commute, at the gym, or on a walk. Turn reading into listening.
+          Upload any document and join a virtual meeting where an AI guides you through it
+          section by section. Ask questions, skip ahead, or just listen — all hands-free,
+          on your commute or on a walk.
         </p>
         <div className="flex flex-col phone:flex-row items-center justify-center gap-4">
           <a
@@ -166,17 +181,41 @@ export function Login() {
         </div>
       </section>
 
+      {/* ---- Virtual Meeting highlight ---- */}
+      <section className="max-w-3xl mx-auto px-6 py-8">
+        <div className="flex items-start gap-5 p-6 rounded-card bg-accent/5 border border-accent/30">
+          <Icon path={mdiPhone} size={2} className="text-accent shrink-0" />
+          <div>
+            <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-pill bg-accent/15 text-accent text-[0.65rem] font-semibold uppercase tracking-wider mb-2">
+              New
+            </div>
+            <h3 className="font-semibold text-lg mb-1">Virtual Meeting Review</h3>
+            <p className="text-fg-muted text-sm leading-relaxed mb-3">
+              Start a meeting on any document and an AI facilitator narrates it section by section.
+              Speak naturally to ask questions, request summaries, skip ahead, or go back.
+              The AI pauses when you talk and responds in real time.
+            </p>
+            <ul className="space-y-1.5 text-sm text-fg-muted">
+              <li className="flex items-center gap-2"><Icon path={mdiCheckCircle} size={0.55} className="text-accent shrink-0" /> Voice-controlled — just talk, no buttons needed</li>
+              <li className="flex items-center gap-2"><Icon path={mdiCheckCircle} size={0.55} className="text-accent shrink-0" /> Noise-aware — narration pauses automatically around you</li>
+              <li className="flex items-center gap-2"><Icon path={mdiCheckCircle} size={0.55} className="text-accent shrink-0" /> Export meeting notes as markdown when done</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
       {/* ---- How it works ---- */}
       <section className="max-w-5xl mx-auto px-6 py-16">
         <h2 className="text-2xl font-bold text-center mb-4">How it works</h2>
         <p className="text-fg-muted text-center mb-12 max-w-xl mx-auto">
-          Three steps from document to audiobook
+          Four steps from document to reviewed
         </p>
-        <div className="grid grid-cols-1 tablet:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 tablet:grid-cols-4 gap-8">
           {[
             { step: "1", title: "Upload", desc: "Drag & drop your Word, PDF, or Markdown file" },
             { step: "2", title: "Convert", desc: "Your document is converted into natural-sounding audio" },
-            { step: "3", title: "Listen", desc: "Play your audiobook anywhere — phone, desktop, car" },
+            { step: "3", title: "Meet", desc: "Join a virtual meeting — the AI walks you through each section" },
+            { step: "4", title: "Review", desc: "Ask questions, skip ahead, pause — export notes when done" },
           ].map((s) => (
             <div key={s.step} className="text-center">
               <div className="w-12 h-12 rounded-full bg-accent/15 text-accent font-bold text-lg flex items-center justify-center mx-auto mb-4">
