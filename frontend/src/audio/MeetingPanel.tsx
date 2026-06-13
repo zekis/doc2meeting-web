@@ -17,7 +17,6 @@ import {
   mdiMicrophoneOff,
   mdiPhone,
   mdiPhoneHangup,
-  mdiLoading,
   mdiReplay,
 } from "@mdi/js";
 import { useAudioPlayer } from "./AudioPlayerContext";
@@ -68,10 +67,33 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
   const sectionIdxRef = useRef(0);
   const paragraphIdxRef = useRef(0);
 
-  // Auto-scroll to latest message
+  // Gentle bloop sound when entering processing state
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const playBloop = useCallback(() => {
+    try {
+      if (!audioCtxRef.current) audioCtxRef.current = new AudioContext();
+      const ctx = audioCtxRef.current;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(660, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.15);
+      gain.gain.setValueAtTime(0.08, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.25);
+    } catch { /* ignore audio errors */ }
+  }, []);
+
+  useEffect(() => {
+    if (meetingState === "processing") playBloop();
+  }, [meetingState, playBloop]);
+
+  // Auto-scroll to latest message and on state changes (processing, user_talking, etc.)
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, meetingState]);
 
   // Stop narration audio
   const stopNarration = useCallback(() => {
@@ -632,12 +654,12 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
             <div className="meeting-msg-content">{msg.content}</div>
           </div>
         ))}
-        {meetingState === "processing" && (
+        {(meetingState === "processing" || meetingState === "agent_responding") && (
           <div className="meeting-msg meeting-msg-assistant">
             <div className="meeting-msg-label">Doc</div>
             <div className="meeting-msg-content meeting-thinking">
-              <Icon path={mdiLoading} size={0.6} spin />
-              Thinking...
+              <span className="meeting-dots"><span /><span /><span /></span>
+              {meetingState === "processing" ? "Thinking..." : "Speaking..."}
             </div>
           </div>
         )}
