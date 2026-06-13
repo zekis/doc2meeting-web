@@ -118,6 +118,8 @@ export interface AudioPlayerActions {
   updateDoc: (doc: DocumentDetail) => void;
   /** Update current position without starting playback (used by MeetingPanel). */
   setPosition: (sectionIdx: number, paragraphIdx: number) => void;
+  /** Register a callback that intercepts jumpToSection/jumpToParagraph (used by MeetingPanel). */
+  setNavigationInterceptor: (cb: ((sectionIdx: number, paragraphIdx: number) => void) | null) => void;
 }
 
 type AudioPlayerContextValue = AudioPlayerState & AudioPlayerActions;
@@ -162,6 +164,7 @@ export function AudioPlayerProvider({ children }: Props) {
   const speedRef = useRef(speed);
   speedRef.current = speed;
   const epochRef = useRef(0);
+  const navInterceptorRef = useRef<((sectionIdx: number, paragraphIdx: number) => void) | null>(null);
 
   // Audio element — single instance, reused across segments
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -529,6 +532,10 @@ export function AudioPlayerProvider({ children }: Props) {
     },
 
     jumpToSection: (sectionIdx: number) => {
+      if (navInterceptorRef.current) {
+        navInterceptorRef.current(sectionIdx, 0);
+        return;
+      }
       const d = docRef.current;
       if (!d) return;
       const sec = d.sections.find((s) => s.idx === sectionIdx);
@@ -557,6 +564,10 @@ export function AudioPlayerProvider({ children }: Props) {
     },
 
     jumpToParagraph: (sectionIdx: number, paragraphIdx: number) => {
+      if (navInterceptorRef.current) {
+        navInterceptorRef.current(sectionIdx, paragraphIdx);
+        return;
+      }
       const d = docRef.current;
       if (!d) return;
       const sec = d.sections.find((s) => s.idx === sectionIdx);
@@ -700,6 +711,10 @@ export function AudioPlayerProvider({ children }: Props) {
       setCurrentParagraphIdx(paragraphIdx);
       sectionIdxRef.current = sectionIdx;
       paragraphIdxRef.current = paragraphIdx;
+    },
+
+    setNavigationInterceptor: (cb) => {
+      navInterceptorRef.current = cb;
     },
   }), [playParagraph, prefetchSection]);
 

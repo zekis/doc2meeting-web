@@ -45,7 +45,7 @@ interface MeetingPanelProps {
 }
 
 export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
-  const { doc, pause, setPosition } = useAudioPlayer();
+  const { doc, pause, setPosition, setNavigationInterceptor } = useAudioPlayer();
 
   const [meetingState, setMeetingState] = useState<MeetingState>("idle");
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -324,6 +324,80 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
     setMeetingState("user_talking");
   }, []);
 
+  // Handle user clicking a section/paragraph in the sidebar during a meeting
+  const handleUserNavigation = useCallback(async (sectionIdx: number, paragraphIdx: number) => {
+    if (!sessionIdRef.current || !docRef.current) return;
+
+    // Stop current narration & response audio
+    stopNarration();
+    if (responseAudioRef.current) {
+      responseAudioRef.current.onended = null;
+      responseAudioRef.current.onerror = null;
+      responseAudioRef.current.pause();
+      responseAudioRef.current = null;
+    }
+
+    // Update position
+    sectionIdxRef.current = sectionIdx;
+    paragraphIdxRef.current = paragraphIdx;
+    setPosition(sectionIdx, paragraphIdx);
+
+    // Build a descriptive navigation message for the agent
+    const d = docRef.current;
+    const sec = d.sections.find(s => s.idx === sectionIdx);
+    const sectionName = sec?.title || `Section ${sectionIdx + 1}`;
+    const navText = `[User navigated to ${sectionName}, paragraph ${paragraphIdx + 1}]`;
+
+    setMeetingState("processing");
+
+    const userMsg: MeetingMessageData = {
+      id: Date.now(),
+      role: "user",
+      content: navText,
+      section_idx: sectionIdx,
+      paragraph_idx: paragraphIdx,
+      tool_action: null,
+      audio_url: null,
+      created_at: new Date().toISOString(),
+    };
+    setMessages(prev => [...prev, userMsg]);
+
+    try {
+      const reply = await meetingApi.sendMessage(
+        sessionIdRef.current!,
+        navText,
+        sectionIdx,
+        paragraphIdx,
+      );
+
+      if (reply.reply) {
+        const assistantMsg: MeetingMessageData = {
+          id: Date.now() + 1,
+          role: "assistant",
+          content: reply.reply,
+          section_idx: sectionIdx,
+          paragraph_idx: paragraphIdx,
+          tool_action: reply.tool_action,
+          audio_url: reply.audio_url,
+          created_at: new Date().toISOString(),
+        };
+        setMessages(prev => [...prev, assistantMsg]);
+      }
+
+      if (reply.audio_url) {
+        playResponseAudio(reply.audio_url, reply);
+      } else {
+        // No audio — start narrating from the new position
+        setMeetingState("listening");
+        playNarrationRef.current(sectionIdx, paragraphIdx);
+      }
+    } catch (e) {
+      setError((e as Error).message);
+      setMeetingState("listening");
+      playNarrationRef.current(sectionIdx, paragraphIdx);
+    }
+  }, [stopNarration, setPosition, playResponseAudio]);
+
   // VAD hook — enabled when meeting is active (user can always interrupt)
   const voiceInput = useVoiceInput({
     enabled: micEnabled && meetingState !== "processing" && meetingState !== "idle" && meetingState !== "ended" && meetingState !== "starting",
@@ -488,8 +562,11 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
     if (meetingState === "idle") {
       initMeeting();
     }
+    // Register navigation interceptor so sidebar clicks go through the agent
+    setNavigationInterceptor(handleUserNavigation);
     // Cleanup on unmount
     return () => {
+      setNavigationInterceptor(null);
       stopNarration();
       if (responseAudioRef.current) {
         responseAudioRef.current.pause();
