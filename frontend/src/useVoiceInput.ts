@@ -249,20 +249,24 @@ export function useVoiceInput(opts: VoiceInputOptions): VoiceInputControls {
       chunksRef.current = [];
       recorderRef.current = null;
 
-      // Restart pre-buffer IMMEDIATELY so mic is ready for next utterance.
-      // This prevents the "first speech missed" bug where getUserMedia latency
-      // caused a gap between processing-complete and mic-ready.
+      // Restart pre-buffer IMMEDIATELY so lead-in audio of the next utterance
+      // is captured while we're still processing this one. But stay in
+      // "processing" state — the monitor must NOT detect speech during
+      // processing, or it creates rapid-fire recording cycles.
       if (enabledRef.current && streamRef.current) {
         beginPreBuffer();
-        setState("listening");
       }
 
+      setState("processing");
       try {
         await onAudioCapturedRef.current(blob);
       } catch (e) {
         setError((e as Error).message);
       } finally {
-        if (!enabledRef.current) {
+        if (enabledRef.current) {
+          setState("listening");
+          // Pre-buffer is already running from above
+        } else {
           // Disabled during processing — clean up pre-buffer we started above
           const rec = recorderRef.current as MediaRecorder | null;
           if (rec && rec.state === "recording") {
