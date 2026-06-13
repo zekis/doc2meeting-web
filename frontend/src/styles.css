@@ -2221,7 +2221,7 @@ button.link-btn {
 
 /* Review text in player */
 .player-review-text {
-  max-width: min(70ch, 100%);
+  max-width: min(80%, 100%);
   margin: 0 auto;
   font-size: 0.95rem;
   line-height: 1.65;
