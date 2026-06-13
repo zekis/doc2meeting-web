@@ -12,9 +12,11 @@ import os
 from datetime import datetime
 from typing import Optional
 
+import json
+
 from agents import Agent, Runner
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
@@ -480,6 +482,133 @@ def send_message(
             "target_paragraph_idx": agent_response.target_paragraph_idx,
             "audio_url": audio_url,
         }
+
+
+@router.post("/{session_id}/message/stream")
+def send_message_stream(
+    session_id: str,
+    body: MessageBody,
+    current_user: User = Depends(get_current_user),
+):
+    """Send a user message and stream the response as NDJSON.
+
+    Emits two lines:
+      {"type":"text","reply":"...","tool_action":"...","target_section_idx":...,"target_paragraph_idx":...}
+      {"type":"audio","audio_url":"..."}
+    The text line arrives as soon as the LLM finishes so the frontend can show
+    it immediately while TTS generates in the background.
+    """
+    # Do all DB reads up front (before the generator runs)
+    with Session(engine) as session:
+        meeting = session.exec(
+            select(MeetingSession).where(
+                MeetingSession.id == session_id,
+                MeetingSession.user_id == current_user.id,
+                MeetingSession.status == "active",
+            )
+        ).first()
+        if not meeting:
+            raise HTTPException(404, "Meeting session not found or ended")
+
+        doc = session.get(Document, meeting.document_id)
+        if not doc:
+            raise HTTPException(404, "Document not found")
+
+        doc_id = doc.id
+        doc_name = doc.rel_path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+        sections = _get_document_sections(doc)
+        sec = sections[body.section_idx] if body.section_idx < len(sections) else sections[-1]
+
+        # Clean speech
+        cleaned_text = _clean_raw_speech(body.text, doc_name, sec.title)
+        if cleaned_text is None:
+            noise = json.dumps({
+                "type": "text", "reply": "", "tool_action": None,
+                "target_section_idx": None, "target_paragraph_idx": None,
+            })
+            return StreamingResponse(
+                iter([noise + "\n"]),
+                media_type="application/x-ndjson",
+            )
+
+        # Save user message
+        user_msg = MeetingMessage(
+            session_id=session_id, role="user", content=cleaned_text,
+            section_idx=body.section_idx, paragraph_idx=body.paragraph_idx,
+        )
+        session.add(user_msg)
+        session.commit()
+
+        meeting.current_section_idx = body.section_idx
+        meeting.current_paragraph_idx = body.paragraph_idx
+
+        history = list(session.exec(
+            select(MeetingMessage)
+            .where(MeetingMessage.session_id == session_id)
+            .order_by(MeetingMessage.id)
+        ).all())
+
+        prompt = _build_agent_prompt(
+            doc_name, sections,
+            body.section_idx, body.paragraph_idx,
+            cleaned_text, history,
+        )
+
+        # Run agent
+        agent = _build_meeting_agent()
+        try:
+            result = Runner.run_sync(agent, prompt, max_turns=4)
+            agent_response: MeetingResponse = result.final_output
+        except Exception:
+            logger.exception("Meeting agent failed")
+            raise HTTPException(500, "AI agent failed to respond")
+
+        reply_text = agent_response.reply.strip()
+
+        # Save assistant message (audio_path filled in later)
+        assistant_msg = MeetingMessage(
+            session_id=session_id, role="assistant", content=reply_text,
+            section_idx=body.section_idx, paragraph_idx=body.paragraph_idx,
+            tool_action=agent_response.tool_action,
+        )
+        session.add(assistant_msg)
+        session.add(meeting)
+        session.commit()
+        session.refresh(assistant_msg)
+        msg_id = assistant_msg.id
+
+    # Capture values for the generator closure
+    text_event = json.dumps({
+        "type": "text",
+        "reply": reply_text,
+        "tool_action": agent_response.tool_action,
+        "target_section_idx": agent_response.target_section_idx,
+        "target_paragraph_idx": agent_response.target_paragraph_idx,
+    })
+
+    def generate():
+        # Yield text immediately
+        yield text_event + "\n"
+        # Now generate TTS (the slow part)
+        audio_url = None
+        try:
+            audio_path, _chars = synthesise_response_audio(
+                reply_text, doc_id, body.section_idx, body.paragraph_idx,
+            )
+            audio_rel = relative_audio_path(audio_path)
+            audio_url = f"/audio/{audio_rel}"
+            # Update the message with the audio path
+            with Session(engine) as db:
+                m = db.get(MeetingMessage, msg_id)
+                if m:
+                    m.audio_path = audio_rel
+                    db.add(m)
+                    db.commit()
+        except Exception:
+            logger.exception("Failed to generate meeting response TTS")
+        yield json.dumps({"type": "audio", "audio_url": audio_url}) + "\n"
+
+    return StreamingResponse(generate(), media_type="application/x-ndjson")
 
 
 @router.get("/{session_id}/notes")

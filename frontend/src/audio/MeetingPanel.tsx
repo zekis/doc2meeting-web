@@ -15,8 +15,10 @@ import {
   mdiDownload,
   mdiMicrophone,
   mdiMicrophoneOff,
+  mdiPause,
   mdiPhone,
   mdiPhoneHangup,
+  mdiPlay,
   mdiReplay,
 } from "@mdi/js";
 import { useAudioPlayer } from "./AudioPlayerContext";
@@ -35,6 +37,7 @@ export type MeetingState =
   | "user_talking"   // user speaking, narration paused
   | "processing"     // transcribing + waiting for AI
   | "agent_responding" // playing AI response TTS
+  | "paused"         // user manually paused the meeting
   | "ended";
 
 interface MeetingPanelProps {
@@ -250,7 +253,7 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
     }
   }, []);
 
-  // Process captured audio from VAD
+  // Process captured audio from VAD — uses streaming endpoint for faster response
   const handleAudioCaptured = useCallback(async (blob: Blob) => {
     if (!sessionIdRef.current) return;
     setMeetingState("processing");
@@ -259,7 +262,6 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
       // Transcribe via Whisper
       const { text } = await api.transcribe(blob);
       if (!text.trim()) {
-        // Empty transcript — just noise, resume narration
         resumeNarration();
         return;
       }
@@ -278,48 +280,56 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
       };
       setMessages(prev => [...prev, userMsg]);
 
-      // Send to meeting agent (backend cleans speech with AI first)
-      const reply = await meetingApi.sendMessage(
+      // Stream: get text immediately, then audio when TTS finishes
+      let pendingReply: MeetingReply | null = null;
+
+      await meetingApi.sendMessageStream(
         sessionIdRef.current!,
         text.trim(),
         sectionIdxRef.current,
         paragraphIdxRef.current,
+        // onText — arrives as soon as LLM finishes (before TTS)
+        (reply) => {
+          if (!reply.reply && !reply.tool_action) {
+            // Noise — remove user message and resume
+            setMessages(prev => prev.filter(m => m.id !== msgId));
+            resumeNarration();
+            pendingReply = null;
+            return;
+          }
+
+          pendingReply = reply;
+
+          // Show assistant text immediately
+          const assistantMsg: MeetingMessageData = {
+            id: Date.now() + 1,
+            role: "assistant",
+            content: reply.reply,
+            section_idx: sectionIdxRef.current,
+            paragraph_idx: paragraphIdxRef.current,
+            tool_action: reply.tool_action,
+            audio_url: null,
+            created_at: new Date().toISOString(),
+          };
+          setMessages(prev => [...prev, assistantMsg]);
+
+          // Destroy paused narration audio since we have a real response
+          if (narrationAudioRef.current) {
+            narrationAudioRef.current.onended = null;
+            narrationAudioRef.current.onerror = null;
+            narrationAudioRef.current = null;
+          }
+        },
+        // onAudio — arrives when TTS finishes
+        (audioUrl) => {
+          if (!pendingReply) return;
+          if (audioUrl) {
+            playResponseAudio(audioUrl, pendingReply);
+          } else {
+            handleToolAction(pendingReply);
+          }
+        },
       );
-
-      // Check if backend determined this is noise (empty reply, no action)
-      if (!reply.reply && !reply.tool_action) {
-        // Remove the user message and resume narration
-        setMessages(prev => prev.filter(m => m.id !== msgId));
-        resumeNarration();
-        return;
-      }
-
-      // Add assistant message
-      const assistantMsg: MeetingMessageData = {
-        id: Date.now() + 1,
-        role: "assistant",
-        content: reply.reply,
-        section_idx: sectionIdxRef.current,
-        paragraph_idx: paragraphIdxRef.current,
-        tool_action: reply.tool_action,
-        audio_url: reply.audio_url,
-        created_at: new Date().toISOString(),
-      };
-      setMessages(prev => [...prev, assistantMsg]);
-
-      // Destroy paused narration audio since we have a real response now
-      if (narrationAudioRef.current) {
-        narrationAudioRef.current.onended = null;
-        narrationAudioRef.current.onerror = null;
-        narrationAudioRef.current = null;
-      }
-
-      // Play response audio
-      if (reply.audio_url) {
-        playResponseAudio(reply.audio_url, reply);
-      } else {
-        handleToolAction(reply);
-      }
     } catch (e) {
       setError((e as Error).message);
       resumeNarration();
@@ -364,7 +374,6 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
     paragraphIdxRef.current = paragraphIdx;
     setPosition(sectionIdx, paragraphIdx);
 
-    // Build a descriptive navigation message for the agent
     const d = docRef.current;
     const sec = d.sections.find(s => s.idx === sectionIdx);
     const sectionName = sec?.title || `Section ${sectionIdx + 1}`;
@@ -385,34 +394,39 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
     setMessages(prev => [...prev, userMsg]);
 
     try {
-      const reply = await meetingApi.sendMessage(
+      let pendingReply: MeetingReply | null = null;
+
+      await meetingApi.sendMessageStream(
         sessionIdRef.current!,
         navText,
         sectionIdx,
         paragraphIdx,
+        (reply) => {
+          pendingReply = reply;
+          if (reply.reply) {
+            const assistantMsg: MeetingMessageData = {
+              id: Date.now() + 1,
+              role: "assistant",
+              content: reply.reply,
+              section_idx: sectionIdx,
+              paragraph_idx: paragraphIdx,
+              tool_action: reply.tool_action,
+              audio_url: null,
+              created_at: new Date().toISOString(),
+            };
+            setMessages(prev => [...prev, assistantMsg]);
+          }
+        },
+        (audioUrl) => {
+          if (!pendingReply) return;
+          if (audioUrl) {
+            playResponseAudio(audioUrl, pendingReply);
+          } else {
+            setMeetingState("listening");
+            playNarrationRef.current(sectionIdx, paragraphIdx);
+          }
+        },
       );
-
-      if (reply.reply) {
-        const assistantMsg: MeetingMessageData = {
-          id: Date.now() + 1,
-          role: "assistant",
-          content: reply.reply,
-          section_idx: sectionIdx,
-          paragraph_idx: paragraphIdx,
-          tool_action: reply.tool_action,
-          audio_url: reply.audio_url,
-          created_at: new Date().toISOString(),
-        };
-        setMessages(prev => [...prev, assistantMsg]);
-      }
-
-      if (reply.audio_url) {
-        playResponseAudio(reply.audio_url, reply);
-      } else {
-        // No audio — start narrating from the new position
-        setMeetingState("listening");
-        playNarrationRef.current(sectionIdx, paragraphIdx);
-      }
     } catch (e) {
       setError((e as Error).message);
       setMeetingState("listening");
@@ -420,9 +434,28 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
     }
   }, [stopNarration, setPosition, playResponseAudio]);
 
+  // Pause / unpause the meeting
+  const pauseMeeting = useCallback(() => {
+    stopNarration();
+    if (responseAudioRef.current) {
+      responseAudioRef.current.onended = null;
+      responseAudioRef.current.onerror = null;
+      responseAudioRef.current.pause();
+      responseAudioRef.current = null;
+    }
+    setMicEnabled(false);
+    setMeetingState("paused");
+  }, [stopNarration]);
+
+  const unpauseMeeting = useCallback(() => {
+    setMicEnabled(true);
+    setMeetingState("listening");
+    playNarrationRef.current(sectionIdxRef.current, paragraphIdxRef.current);
+  }, []);
+
   // VAD hook — enabled when meeting is active (user can always interrupt)
   const voiceInput = useVoiceInput({
-    enabled: micEnabled && meetingState !== "processing" && meetingState !== "idle" && meetingState !== "ended" && meetingState !== "starting",
+    enabled: micEnabled && meetingState !== "processing" && meetingState !== "idle" && meetingState !== "ended" && meetingState !== "starting" && meetingState !== "paused",
     onAudioCaptured: handleAudioCaptured,
     onSpeechStart: handleSpeechStart,
   });
@@ -604,6 +637,7 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
       case "user_talking": return "You're speaking...";
       case "processing": return "Thinking...";
       case "agent_responding": return "Doc is responding...";
+      case "paused": return "Paused";
       case "ended": return "Meeting ended";
       default: return "";
     }
@@ -621,6 +655,15 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
           {sessionId && messages.length > 0 && (
             <button className="icon-btn" onClick={handleExport} title="Export notes">
               <Icon path={mdiDownload} size={0.7} />
+            </button>
+          )}
+          {meetingState !== "ended" && meetingState !== "idle" && meetingState !== "starting" && (
+            <button
+              className="icon-btn"
+              onClick={meetingState === "paused" ? unpauseMeeting : pauseMeeting}
+              title={meetingState === "paused" ? "Resume" : "Pause"}
+            >
+              <Icon path={meetingState === "paused" ? mdiPlay : mdiPause} size={0.7} />
             </button>
           )}
           {meetingState !== "ended" && meetingState !== "idle" && (

@@ -496,6 +496,48 @@ export const meetingApi = {
       paragraph_idx: paragraphIdx,
     }),
 
+  /** Stream a message — calls onText immediately when LLM finishes, onAudio when TTS is ready. */
+  sendMessageStream: async (
+    sessionId: string,
+    text: string,
+    sectionIdx: number,
+    paragraphIdx: number,
+    onText: (reply: MeetingReply) => void,
+    onAudio: (audioUrl: string | null) => void,
+  ): Promise<void> => {
+    const res = await authFetch(`/api/meetings/${sessionId}/message/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, section_idx: sectionIdx, paragraph_idx: paragraphIdx }),
+    });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop()!;
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const event = JSON.parse(line);
+        if (event.type === "text") {
+          onText({
+            reply: event.reply,
+            tool_action: event.tool_action,
+            target_section_idx: event.target_section_idx,
+            target_paragraph_idx: event.target_paragraph_idx,
+            audio_url: null,
+          });
+        } else if (event.type === "audio") {
+          onAudio(event.audio_url);
+        }
+      }
+    }
+  },
+
   getMeetingNotes: async (sessionId: string): Promise<MeetingMessageData[]> =>
     jsonOrThrow(await authFetch(`/api/meetings/${sessionId}/notes`)),
 
