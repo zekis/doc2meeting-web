@@ -1,16 +1,14 @@
 /**
  * Voice input hook — passive-listening VAD + on-demand capture.
  *
- * Behaviour:
- *   1. When `enabled` flips true, request mic permission and start an RMS
- *      monitor on the audio stream.
- *   2. When RMS crosses the start threshold, fire onSpeechStart and begin
- *      MediaRecorder capture.
- *   3. When RMS stays below the silence threshold for SILENCE_MS, stop the
- *      recorder.
- *   4. Hand the resulting Blob to the caller via onAudioCaptured (awaited).
- *      Caller is responsible for transcription + any side effects.
- *   5. Return to listening (or idle, if disabled mid-capture).
+ * Uses a pre-buffer approach: a MediaRecorder runs continuously during the
+ * "listening" state so the start of speech is never clipped. When RMS crosses
+ * the speech threshold the recorder is already capturing, so the lead-in audio
+ * is included in the final blob. When silence is detected, the recorder stops
+ * and the full audio (pre-buffer + speech) is handed to the caller.
+ *
+ * The pre-buffer recorder restarts every PRE_BUFFER_MAX_MS seconds during
+ * silence to keep the accumulated audio bounded.
  *
  * The hook owns its mic stream — flipping `enabled` to false releases it.
  */
@@ -20,7 +18,7 @@ import { useEffect, useRef, useState } from "react";
 export type VoiceInputState =
   | "idle"           // mic not open
   | "starting"       // requesting permission
-  | "listening"      // monitoring for voice
+  | "listening"      // monitoring for voice (pre-buffer recording)
   | "recording"      // user is talking, capturing audio
   | "processing"     // onAudioCaptured running
   | "error";
@@ -39,13 +37,14 @@ export interface VoiceInputControls {
   level: number;
 }
 
-// Empirically-tuned for typical desk mics. The start threshold is higher than
-// the silence threshold so the hook hysteresis-resists fluttering on the edge.
+// Empirically-tuned for typical desk/laptop mics. The start threshold is
+// higher than the silence threshold so the hook hysteresis-resists fluttering.
 const SPEECH_START_RMS = 0.04;
 const SILENCE_RMS = 0.015;
 const SILENCE_MS = 1500;
 const FFT_SIZE = 1024;
 const MIN_RECORDING_MS = 400; // ignore micro-pops shorter than this
+const PRE_BUFFER_MAX_MS = 10_000; // restart pre-buffer every 10s to bound silence
 
 export function useVoiceInput(opts: VoiceInputOptions): VoiceInputControls {
   const { enabled, onAudioCaptured, onSpeechStart } = opts;
@@ -67,26 +66,26 @@ export function useVoiceInput(opts: VoiceInputOptions): VoiceInputControls {
   const ctxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
   const rafRef = useRef<number | null>(null);
+  const mimeRef = useRef("audio/webm");
+  const preBufferStartRef = useRef(0);
 
   useEffect(() => {
     if (!enabled) {
       cleanup();
       return;
     }
-    start();
+    startMic();
     return cleanup;
     // We intentionally only re-bind when `enabled` toggles.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled]);
 
-  async function start() {
+  async function startMic() {
     setError(null);
     setState("starting");
     if (!navigator.mediaDevices?.getUserMedia) {
-      // The Media Capture API is gated behind secure contexts. Over plain
-      // HTTP to a non-localhost host (e.g. a Tailscale IP) the browser
-      // doesn't expose `navigator.mediaDevices` at all.
       const hint = window.isSecureContext
         ? "this browser doesn't support the Media Capture API"
         : "microphone requires HTTPS (or localhost). Use Tailscale Serve, or the HTTPS Vite dev server.";
@@ -103,6 +102,14 @@ export function useVoiceInput(opts: VoiceInputOptions): VoiceInputControls {
         },
       });
       streamRef.current = stream;
+
+      // Determine supported MIME type once
+      let mime: string | undefined = "audio/webm;codecs=opus";
+      if (!MediaRecorder.isTypeSupported(mime)) {
+        mime = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : undefined;
+      }
+      mimeRef.current = mime ?? "audio/webm";
+
       const ctx = new AudioContext();
       ctxRef.current = ctx;
       const source = ctx.createMediaStreamSource(stream);
@@ -110,7 +117,9 @@ export function useVoiceInput(opts: VoiceInputOptions): VoiceInputControls {
       analyser.fftSize = FFT_SIZE;
       source.connect(analyser);
       analyserRef.current = analyser;
+
       setState("listening");
+      beginPreBuffer();
       runMonitor();
     } catch (e) {
       setError((e as Error).message || "Microphone access denied");
@@ -118,12 +127,40 @@ export function useVoiceInput(opts: VoiceInputOptions): VoiceInputControls {
     }
   }
 
+  /**
+   * Start (or restart) the pre-buffer MediaRecorder. This runs continuously
+   * during "listening" so that when speech starts the lead-in is captured.
+   */
+  function beginPreBuffer() {
+    if (!streamRef.current) return;
+    // Stop any existing recorder without processing its output
+    const old = recorderRef.current;
+    if (old && old.state === "recording") {
+      old.ondataavailable = () => {};
+      old.onstop = () => {};
+      old.stop();
+    }
+
+    const recorder = mimeRef.current
+      ? new MediaRecorder(streamRef.current, { mimeType: mimeRef.current })
+      : new MediaRecorder(streamRef.current);
+    recorderRef.current = recorder;
+    chunksRef.current = [];
+
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunksRef.current.push(e.data);
+    };
+
+    recorder.start();
+    preBufferStartRef.current = performance.now();
+  }
+
   function runMonitor() {
     const analyser = analyserRef.current;
     if (!analyser) return;
     const buf = new Float32Array(analyser.fftSize);
     let silenceStart: number | null = null;
-    let recordingStartedAt = 0;
+    let speechStartedAt = 0;
 
     const tick = () => {
       if (!enabledRef.current || !analyserRef.current) return;
@@ -136,10 +173,17 @@ export function useVoiceInput(opts: VoiceInputOptions): VoiceInputControls {
       const now = performance.now();
       const cur = stateRef.current;
 
-      if (cur === "listening" && rms > SPEECH_START_RMS) {
-        recordingStartedAt = now;
-        silenceStart = null;
-        beginRecording();
+      if (cur === "listening") {
+        if (rms > SPEECH_START_RMS) {
+          // Speech detected — recorder is already running with pre-buffer!
+          speechStartedAt = now;
+          silenceStart = null;
+          setState("recording");
+          onSpeechStartRef.current?.();
+        } else if (now - preBufferStartRef.current > PRE_BUFFER_MAX_MS) {
+          // Restart pre-buffer to bound accumulated silence
+          beginPreBuffer();
+        }
       } else if (cur === "recording") {
         if (rms > SILENCE_RMS) {
           silenceStart = null;
@@ -147,56 +191,54 @@ export function useVoiceInput(opts: VoiceInputOptions): VoiceInputControls {
           if (silenceStart === null) silenceStart = now;
           else if (
             now - silenceStart >= SILENCE_MS &&
-            now - recordingStartedAt >= MIN_RECORDING_MS
+            now - speechStartedAt >= MIN_RECORDING_MS
           ) {
-            endRecording();
+            finishRecording();
             silenceStart = null;
           }
         }
       }
+
       rafRef.current = requestAnimationFrame(tick);
     };
 
     rafRef.current = requestAnimationFrame(tick);
   }
 
-  function beginRecording() {
-    if (!streamRef.current) return;
-    if (recorderRef.current?.state === "recording") return;
-    let mime: string | undefined = "audio/webm;codecs=opus";
-    if (!MediaRecorder.isTypeSupported(mime)) {
-      mime = MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : undefined;
+  /** Stop the recorder, process the blob, and restart the pre-buffer. */
+  function finishRecording() {
+    const recorder = recorderRef.current;
+    if (!recorder || recorder.state !== "recording") {
+      if (enabledRef.current) {
+        setState("listening");
+        beginPreBuffer();
+      } else {
+        setState("idle");
+      }
+      return;
     }
-    const recorder = mime
-      ? new MediaRecorder(streamRef.current, { mimeType: mime })
-      : new MediaRecorder(streamRef.current);
-    recorderRef.current = recorder;
-    const chunks: Blob[] = [];
-    recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) chunks.push(e.data);
-    };
+
     recorder.onstop = async () => {
-      const blob = new Blob(chunks, { type: mime ?? "audio/webm" });
+      const blob = new Blob(chunksRef.current, { type: mimeRef.current });
+      chunksRef.current = [];
+      recorderRef.current = null;
+
       setState("processing");
       try {
         await onAudioCapturedRef.current(blob);
       } catch (e) {
         setError((e as Error).message);
       } finally {
-        // Resume listening only if the user hasn't disabled us mid-process.
-        if (enabledRef.current) setState("listening");
-        else setState("idle");
+        if (enabledRef.current) {
+          setState("listening");
+          beginPreBuffer();
+        } else {
+          setState("idle");
+        }
       }
     };
-    recorder.start();
-    setState("recording");
-    onSpeechStartRef.current?.();
-  }
 
-  function endRecording() {
-    if (recorderRef.current?.state === "recording") {
-      recorderRef.current.stop();
-    }
+    recorder.stop();
   }
 
   function cleanup() {
@@ -206,10 +248,13 @@ export function useVoiceInput(opts: VoiceInputOptions): VoiceInputControls {
     }
     if (recorderRef.current?.state === "recording") {
       try {
+        recorderRef.current.ondataavailable = () => {};
+        recorderRef.current.onstop = () => {};
         recorderRef.current.stop();
       } catch {}
     }
     recorderRef.current = null;
+    chunksRef.current = [];
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     if (ctxRef.current?.state !== "closed") {
