@@ -820,7 +820,11 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
           <div className="meeting-error">{error}</div>
         )}
         <div className="meeting-status-row">
-          <div className="meeting-mic-indicator">
+          <button
+            className="meeting-mic-indicator"
+            onClick={() => setMicEnabled(prev => !prev)}
+            title={micEnabled ? "Mute mic" : "Unmute mic"}
+          >
             <Icon
               path={micEnabled && voiceInput.state !== "error" ? mdiMicrophone : mdiMicrophoneOff}
               size={0.7}
@@ -832,7 +836,7 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
                 style={{ width: `${Math.min(voiceInput.level * 300, 100)}%` }}
               />
             )}
-          </div>
+          </button>
           <span className="meeting-status-text">{stateLabel}</span>
         </div>
         {voiceInput.error && (

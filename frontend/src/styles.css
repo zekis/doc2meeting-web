@@ -2541,6 +2541,10 @@ button.secondary:hover {
   align-items: center;
   width: 2rem;
   height: 1.2rem;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
 }
 
 .meeting-mic-icon {
