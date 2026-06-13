@@ -198,12 +198,16 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
         setMeetingState("listening");
         if (reply.target_section_idx != null) {
           playNarrationRef.current(reply.target_section_idx, reply.target_paragraph_idx ?? 0);
+        } else {
+          // Agent said "jump" without a target — continue from current position
+          playNarrationRef.current(sectionIdxRef.current, paragraphIdxRef.current);
         }
         break;
       case "summarize":
       default:
-        // No navigation — stay paused, user can say "continue" or speak again
+        // Resume narration from current position so meeting doesn't go silent
         setMeetingState("listening");
+        playNarrationRef.current(sectionIdxRef.current, paragraphIdxRef.current);
         break;
     }
   }, []);
@@ -455,7 +459,7 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
 
   // VAD hook — enabled when meeting is active (user can always interrupt)
   const voiceInput = useVoiceInput({
-    enabled: micEnabled && meetingState !== "processing" && meetingState !== "idle" && meetingState !== "ended" && meetingState !== "starting" && meetingState !== "paused",
+    enabled: micEnabled && meetingState !== "idle" && meetingState !== "ended" && meetingState !== "starting" && meetingState !== "paused",
     onAudioCaptured: handleAudioCaptured,
     onSpeechStart: handleSpeechStart,
   });
