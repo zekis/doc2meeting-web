@@ -116,6 +116,8 @@ export interface AudioPlayerActions {
   stop: () => void;
   /** Update the doc reference (for refreshing section data without reloading). */
   updateDoc: (doc: DocumentDetail) => void;
+  /** Update current position without starting playback (used by MeetingPanel). */
+  setPosition: (sectionIdx: number, paragraphIdx: number) => void;
 }
 
 type AudioPlayerContextValue = AudioPlayerState & AudioPlayerActions;
@@ -691,6 +693,13 @@ export function AudioPlayerProvider({ children }: Props) {
     updateDoc: (newDoc: DocumentDetail) => {
       setDoc(newDoc);
       docRef.current = newDoc;
+    },
+
+    setPosition: (sectionIdx: number, paragraphIdx: number) => {
+      setCurrentSectionIdx(sectionIdx);
+      setCurrentParagraphIdx(paragraphIdx);
+      sectionIdxRef.current = sectionIdx;
+      paragraphIdxRef.current = paragraphIdx;
     },
   }), [playParagraph, prefetchSection]);
 

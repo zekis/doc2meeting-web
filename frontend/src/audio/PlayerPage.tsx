@@ -277,8 +277,8 @@ export function PlayerPage({ onBack }: PlayerPageProps) {
             )}
           </div>
 
-          {/* Audio player bar */}
-          <AudioPlayerBar />
+          {/* Audio player bar — hidden during meeting (agent handles narration) */}
+          {!meetingActive && <AudioPlayerBar />}
         </div>
 
         {/* Meeting panel — right side on desktop, overlay on mobile */}

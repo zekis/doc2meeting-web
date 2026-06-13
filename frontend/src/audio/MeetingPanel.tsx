@@ -3,7 +3,9 @@
  *
  * Manages the full meeting lifecycle: start → narration → user speech → AI
  * response → tool action → resume narration. Uses useVoiceInput for VAD-based
- * always-on mic, and a separate Audio element for AI response TTS playback.
+ * always-on mic. Paragraph narration is played through the meeting's own Audio
+ * element (not AudioPlayerContext), while setPosition() keeps the content view
+ * highlighting in sync.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -18,7 +20,7 @@ import {
   mdiLoading,
 } from "@mdi/js";
 import { useAudioPlayer } from "./AudioPlayerContext";
-import { useVoiceInput, type VoiceInputState } from "../useVoiceInput";
+import { useVoiceInput } from "../useVoiceInput";
 import {
   api,
   meetingApi,
@@ -42,64 +44,135 @@ interface MeetingPanelProps {
 }
 
 export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
-  const {
-    playbackState,
-    currentSectionIdx,
-    currentParagraphIdx,
-    jumpToParagraph,
-    jumpToSection,
-    pause,
-    togglePlayPause,
-  } = useAudioPlayer();
+  const { doc, pause, setPosition } = useAudioPlayer();
 
   const [meetingState, setMeetingState] = useState<MeetingState>("idle");
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MeetingMessageData[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [micEnabled, setMicEnabled] = useState(false);
+  const [isNarrating, setIsNarrating] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const responseAudioRef = useRef<HTMLAudioElement | null>(null);
+  const narrationAudioRef = useRef<HTMLAudioElement | null>(null);
+  const narrationEpochRef = useRef(0);
   const meetingStateRef = useRef(meetingState);
   meetingStateRef.current = meetingState;
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
+  const docRef = useRef(doc);
+  docRef.current = doc;
 
-  // Track current position refs for the voice input callbacks
-  const sectionIdxRef = useRef(currentSectionIdx);
-  sectionIdxRef.current = currentSectionIdx;
-  const paragraphIdxRef = useRef(currentParagraphIdx);
-  paragraphIdxRef.current = currentParagraphIdx;
+  // Track current position — meeting manages its own position
+  const sectionIdxRef = useRef(0);
+  const paragraphIdxRef = useRef(0);
 
   // Auto-scroll to latest message
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Stop narration audio
+  const stopNarration = useCallback(() => {
+    narrationEpochRef.current++;
+    if (narrationAudioRef.current) {
+      narrationAudioRef.current.onended = null;
+      narrationAudioRef.current.onerror = null;
+      narrationAudioRef.current.pause();
+      narrationAudioRef.current = null;
+    }
+    setIsNarrating(false);
+  }, []);
+
+  // Play narrator audio for a specific paragraph, auto-advancing when done
+  const playNarrationRef = useRef<(sectionIdx: number, paragraphIdx: number) => void>(() => {});
+
+  const playNarration = useCallback(async (sectionIdx: number, paragraphIdx: number) => {
+    const d = docRef.current;
+    if (!d) return;
+
+    // Cancel any in-flight narration fetch
+    const epoch = ++narrationEpochRef.current;
+
+    // Find the section
+    const sec = d.sections.find(s => s.idx === sectionIdx);
+    if (!sec) {
+      setIsNarrating(false);
+      return;
+    }
+
+    // If paragraph is past end of section, advance to next section
+    if (paragraphIdx >= sec.paragraphs.length) {
+      const listIdx = d.sections.findIndex(s => s.idx === sectionIdx);
+      const nextSec = d.sections[listIdx + 1];
+      if (nextSec) {
+        playNarrationRef.current(nextSec.idx, 0);
+      } else {
+        setIsNarrating(false);
+      }
+      return;
+    }
+
+    // Update position
+    sectionIdxRef.current = sectionIdx;
+    paragraphIdxRef.current = paragraphIdx;
+    setPosition(sectionIdx, paragraphIdx);
+    setIsNarrating(true);
+
+    try {
+      const { narrator_audio_url } = await api.getParagraphNarrator(d.id, sectionIdx, paragraphIdx);
+
+      // Check if cancelled while fetching
+      if (epoch !== narrationEpochRef.current) return;
+
+      const audio = new Audio(narrator_audio_url);
+      narrationAudioRef.current = audio;
+
+      audio.onended = () => {
+        narrationAudioRef.current = null;
+        playNarrationRef.current(sectionIdx, paragraphIdx + 1);
+      };
+      audio.onerror = () => {
+        narrationAudioRef.current = null;
+        playNarrationRef.current(sectionIdx, paragraphIdx + 1);
+      };
+      audio.play().catch(() => {
+        narrationAudioRef.current = null;
+        playNarrationRef.current(sectionIdx, paragraphIdx + 1);
+      });
+    } catch {
+      if (epoch !== narrationEpochRef.current) return;
+      narrationAudioRef.current = null;
+      playNarrationRef.current(sectionIdx, paragraphIdx + 1);
+    }
+  }, [setPosition]);
+
+  playNarrationRef.current = playNarration;
+
   // Handle tool action from AI response
   const handleToolAction = useCallback((reply: MeetingReply) => {
     switch (reply.tool_action) {
-      case "continue":
-        // Resume narration at next paragraph — togglePlayPause will advance
-        togglePlayPause();
+      case "continue": {
+        const nextPara = paragraphIdxRef.current + 1;
         setMeetingState("listening");
+        playNarrationRef.current(sectionIdxRef.current, nextPara);
         break;
+      }
       case "repeat":
-        jumpToParagraph(sectionIdxRef.current, paragraphIdxRef.current);
         setMeetingState("listening");
+        playNarrationRef.current(sectionIdxRef.current, paragraphIdxRef.current);
         break;
       case "go_back": {
-        const prevPara = paragraphIdxRef.current - 1;
-        if (prevPara >= 0) {
-          jumpToParagraph(sectionIdxRef.current, prevPara);
-        }
+        const prevPara = Math.max(0, paragraphIdxRef.current - 1);
         setMeetingState("listening");
+        playNarrationRef.current(sectionIdxRef.current, prevPara);
         break;
       }
       case "jump_to_section":
-        if (reply.target_section_idx != null) {
-          jumpToParagraph(reply.target_section_idx, reply.target_paragraph_idx ?? 0);
-        }
         setMeetingState("listening");
+        if (reply.target_section_idx != null) {
+          playNarrationRef.current(reply.target_section_idx, reply.target_paragraph_idx ?? 0);
+        }
         break;
       case "summarize":
       default:
@@ -107,7 +180,7 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
         setMeetingState("listening");
         break;
     }
-  }, [jumpToParagraph, togglePlayPause]);
+  }, []);
 
   // Play AI response audio, then handle tool action
   const playResponseAudio = useCallback((audioUrl: string, reply: MeetingReply) => {
@@ -188,16 +261,21 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
     }
   }, [playResponseAudio, handleToolAction]);
 
-  // Pause narration when user starts speaking
+  // Stop all audio when user starts speaking — user can always interrupt
   const handleSpeechStart = useCallback(() => {
-    if (meetingStateRef.current === "agent_responding") return; // Don't interrupt AI
-    pause();
+    stopNarration();
+    if (responseAudioRef.current) {
+      responseAudioRef.current.onended = null;
+      responseAudioRef.current.onerror = null;
+      responseAudioRef.current.pause();
+      responseAudioRef.current = null;
+    }
     setMeetingState("user_talking");
-  }, [pause]);
+  }, [stopNarration]);
 
-  // VAD hook — enabled when meeting is active and AI is not talking
+  // VAD hook — enabled when meeting is active (user can always interrupt)
   const voiceInput = useVoiceInput({
-    enabled: micEnabled && meetingState !== "agent_responding" && meetingState !== "processing" && meetingState !== "idle" && meetingState !== "ended" && meetingState !== "starting",
+    enabled: micEnabled && meetingState !== "processing" && meetingState !== "idle" && meetingState !== "ended" && meetingState !== "starting",
     onAudioCaptured: handleAudioCaptured,
     onSpeechStart: handleSpeechStart,
   });
@@ -207,6 +285,9 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
     setMeetingState("starting");
     setError(null);
     setMessages([]);
+
+    // Pause any AudioPlayerContext playback before meeting takes over
+    pause();
 
     try {
       const result = await meetingApi.startMeeting(docId);
@@ -231,45 +312,35 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
         responseAudioRef.current = audio;
         setMeetingState("agent_responding");
 
-        audio.onended = () => {
+        const beginNarration = () => {
           responseAudioRef.current = null;
           setMicEnabled(true);
-          // Start narration from the beginning
-          jumpToParagraph(0, 0);
           setMeetingState("listening");
+          playNarrationRef.current(0, 0);
         };
-        audio.onerror = () => {
-          responseAudioRef.current = null;
-          setMicEnabled(true);
-          jumpToParagraph(0, 0);
-          setMeetingState("listening");
-        };
-        audio.play().catch(() => {
-          responseAudioRef.current = null;
-          setMicEnabled(true);
-          jumpToParagraph(0, 0);
-          setMeetingState("listening");
-        });
+
+        audio.onended = beginNarration;
+        audio.onerror = beginNarration;
+        audio.play().catch(beginNarration);
       } else {
         setMicEnabled(true);
-        jumpToParagraph(0, 0);
         setMeetingState("listening");
+        playNarrationRef.current(0, 0);
       }
     } catch (e) {
       setError((e as Error).message);
       setMeetingState("idle");
     }
-  }, [docId, jumpToParagraph]);
+  }, [docId, pause]);
 
   // End meeting
   const endMeeting = useCallback(async () => {
-    // Stop any playing response audio
+    stopNarration();
     if (responseAudioRef.current) {
       responseAudioRef.current.pause();
       responseAudioRef.current = null;
     }
     setMicEnabled(false);
-    pause();
 
     if (sessionId) {
       try {
@@ -279,7 +350,7 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
       }
     }
     setMeetingState("ended");
-  }, [sessionId, pause]);
+  }, [sessionId, stopNarration]);
 
   // Export notes
   const handleExport = useCallback(async () => {
@@ -305,6 +376,7 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
     }
     // Cleanup on unmount
     return () => {
+      stopNarration();
       if (responseAudioRef.current) {
         responseAudioRef.current.pause();
         responseAudioRef.current = null;
@@ -315,7 +387,7 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
   const stateLabel = (() => {
     switch (meetingState) {
       case "starting": return "Starting meeting...";
-      case "listening": return playbackState === "playing" ? "Listening..." : "Ready";
+      case "listening": return isNarrating ? "Listening..." : "Ready";
       case "user_talking": return "You're speaking...";
       case "processing": return "Thinking...";
       case "agent_responding": return "Doc is responding...";
