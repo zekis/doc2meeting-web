@@ -458,9 +458,31 @@ export interface MeetingMessageData {
   created_at: string;
 }
 
+export interface MeetingSessionInfo {
+  id: string;
+  status: string;
+  current_section_idx: number;
+  current_paragraph_idx: number;
+  created_at: string;
+}
+
+export interface MeetingResumeResult {
+  session_id: string;
+  resume_message: string;
+  resume_audio_url: string | null;
+  current_section_idx: number;
+  current_paragraph_idx: number;
+}
+
 export const meetingApi = {
   startMeeting: async (docId: number): Promise<MeetingStartResult> =>
     sendJson("POST", `/api/meetings/${docId}/start`),
+
+  getLatestSession: async (docId: number): Promise<{ session: MeetingSessionInfo | null }> =>
+    jsonOrThrow(await authFetch(`/api/meetings/${docId}/latest`)),
+
+  resumeMeeting: async (sessionId: string): Promise<MeetingResumeResult> =>
+    sendJson("POST", `/api/meetings/${sessionId}/resume`),
 
   sendMessage: async (
     sessionId: string,

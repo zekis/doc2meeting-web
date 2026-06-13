@@ -18,6 +18,7 @@ import {
   mdiPhone,
   mdiPhoneHangup,
   mdiLoading,
+  mdiReplay,
 } from "@mdi/js";
 import { useAudioPlayer } from "./AudioPlayerContext";
 import { useVoiceInput } from "../useVoiceInput";
@@ -280,20 +281,45 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
     onSpeechStart: handleSpeechStart,
   });
 
-  // Start meeting
+  // Play a greeting audio then enable mic + start narration at given position
+  const playGreetingThenNarrate = useCallback((
+    audioUrl: string | null,
+    sectionIdx: number,
+    paragraphIdx: number,
+  ) => {
+    if (audioUrl) {
+      const audio = new Audio(audioUrl);
+      responseAudioRef.current = audio;
+      setMeetingState("agent_responding");
+
+      const begin = () => {
+        responseAudioRef.current = null;
+        setMicEnabled(true);
+        setMeetingState("listening");
+        playNarrationRef.current(sectionIdx, paragraphIdx);
+      };
+
+      audio.onended = begin;
+      audio.onerror = begin;
+      audio.play().catch(begin);
+    } else {
+      setMicEnabled(true);
+      setMeetingState("listening");
+      playNarrationRef.current(sectionIdx, paragraphIdx);
+    }
+  }, []);
+
+  // Start a brand new meeting
   const startMeeting = useCallback(async () => {
     setMeetingState("starting");
     setError(null);
     setMessages([]);
-
-    // Pause any AudioPlayerContext playback before meeting takes over
     pause();
 
     try {
       const result = await meetingApi.startMeeting(docId);
       setSessionId(result.session_id);
 
-      // Add intro message
       const introMsg: MeetingMessageData = {
         id: Date.now(),
         role: "assistant",
@@ -306,32 +332,70 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
       };
       setMessages([introMsg]);
 
-      // Play intro audio, then start narration
-      if (result.intro_audio_url) {
-        const audio = new Audio(result.intro_audio_url);
-        responseAudioRef.current = audio;
-        setMeetingState("agent_responding");
-
-        const beginNarration = () => {
-          responseAudioRef.current = null;
-          setMicEnabled(true);
-          setMeetingState("listening");
-          playNarrationRef.current(0, 0);
-        };
-
-        audio.onended = beginNarration;
-        audio.onerror = beginNarration;
-        audio.play().catch(beginNarration);
-      } else {
-        setMicEnabled(true);
-        setMeetingState("listening");
-        playNarrationRef.current(0, 0);
-      }
+      playGreetingThenNarrate(result.intro_audio_url, 0, 0);
     } catch (e) {
       setError((e as Error).message);
       setMeetingState("idle");
     }
-  }, [docId, pause]);
+  }, [docId, pause, playGreetingThenNarrate]);
+
+  // Resume an existing meeting session
+  const resumeMeeting = useCallback(async (existingSessionId: string) => {
+    setMeetingState("starting");
+    setError(null);
+    pause();
+
+    try {
+      // Load previous messages
+      const notes = await meetingApi.getMeetingNotes(existingSessionId);
+      setMessages(notes.filter(m => m.role !== "system"));
+
+      // Resume session on backend
+      const result = await meetingApi.resumeMeeting(existingSessionId);
+      setSessionId(result.session_id);
+
+      // Add welcome-back message
+      const resumeMsg: MeetingMessageData = {
+        id: Date.now(),
+        role: "assistant",
+        content: result.resume_message,
+        section_idx: result.current_section_idx,
+        paragraph_idx: result.current_paragraph_idx,
+        tool_action: null,
+        audio_url: result.resume_audio_url,
+        created_at: new Date().toISOString(),
+      };
+      setMessages(prev => [...prev, resumeMsg]);
+
+      // Set position to where we left off
+      sectionIdxRef.current = result.current_section_idx;
+      paragraphIdxRef.current = result.current_paragraph_idx;
+
+      playGreetingThenNarrate(
+        result.resume_audio_url,
+        result.current_section_idx,
+        result.current_paragraph_idx,
+      );
+    } catch (e) {
+      setError((e as Error).message);
+      setMeetingState("idle");
+    }
+  }, [pause, playGreetingThenNarrate]);
+
+  // Initialize meeting — resume existing or start new
+  const initMeeting = useCallback(async () => {
+    try {
+      const { session } = await meetingApi.getLatestSession(docId);
+      if (session) {
+        await resumeMeeting(session.id);
+      } else {
+        await startMeeting();
+      }
+    } catch {
+      // Fallback to new meeting if latest check fails
+      await startMeeting();
+    }
+  }, [docId, resumeMeeting, startMeeting]);
 
   // End meeting
   const endMeeting = useCallback(async () => {
@@ -369,10 +433,10 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
     }
   }, [sessionId, docName]);
 
-  // Auto-start meeting when panel opens
+  // Auto-start meeting when panel opens — resume existing or start new
   useEffect(() => {
     if (meetingState === "idle") {
-      startMeeting();
+      initMeeting();
     }
     // Cleanup on unmount
     return () => {
@@ -416,9 +480,14 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
             </button>
           )}
           {meetingState === "ended" && (
-            <button className="icon-btn" onClick={onClose} title="Close">
-              <Icon path={mdiClose} size={0.7} />
-            </button>
+            <>
+              <button className="icon-btn" onClick={() => resumeMeeting(sessionId!)} title="Resume meeting">
+                <Icon path={mdiReplay} size={0.7} />
+              </button>
+              <button className="icon-btn" onClick={onClose} title="Close">
+                <Icon path={mdiClose} size={0.7} />
+              </button>
+            </>
           )}
         </div>
       </div>

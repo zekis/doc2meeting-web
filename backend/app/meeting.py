@@ -239,6 +239,96 @@ def start_meeting(
         }
 
 
+@router.get("/{doc_id}/latest")
+def get_latest_session(
+    doc_id: int,
+    current_user: User = Depends(get_current_user),
+) -> dict | None:
+    """Get the most recent meeting session for a document (active or ended)."""
+    with Session(engine) as db:
+        meeting = db.exec(
+            select(MeetingSession)
+            .where(
+                MeetingSession.document_id == doc_id,
+                MeetingSession.user_id == current_user.id,
+            )
+            .order_by(MeetingSession.created_at.desc())  # type: ignore[union-attr]
+        ).first()
+        if not meeting:
+            return {"session": None}
+
+        return {
+            "session": {
+                "id": meeting.id,
+                "status": meeting.status,
+                "current_section_idx": meeting.current_section_idx,
+                "current_paragraph_idx": meeting.current_paragraph_idx,
+                "created_at": meeting.created_at.isoformat(),
+            }
+        }
+
+
+@router.post("/{session_id}/resume")
+def resume_meeting(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+) -> dict:
+    """Resume an ended meeting session."""
+    with Session(engine) as db:
+        meeting = db.exec(
+            select(MeetingSession).where(
+                MeetingSession.id == session_id,
+                MeetingSession.user_id == current_user.id,
+            )
+        ).first()
+        if not meeting:
+            raise HTTPException(404, "Meeting session not found")
+
+        # Reopen session
+        meeting.status = "active"
+        meeting.ended_at = None
+        db.add(meeting)
+
+        # Generate welcome-back message
+        doc = db.get(Document, meeting.document_id)
+        doc_name = doc.rel_path.rsplit("/", 1)[-1].rsplit(".", 1)[0] if doc else "the document"
+        resume_text = (
+            f"Welcome back. Let's pick up where we left off on {doc_name}. "
+            f"Just say continue when you're ready."
+        )
+
+        # Generate TTS
+        try:
+            audio_path, _chars = synthesise_response_audio(
+                resume_text, meeting.document_id,
+                meeting.current_section_idx, meeting.current_paragraph_idx,
+            )
+            audio_url = f"/audio/{relative_audio_path(audio_path)}"
+        except Exception:
+            logger.exception("Failed to generate resume TTS")
+            audio_url = None
+
+        # Save resume message
+        resume_msg = MeetingMessage(
+            session_id=session_id,
+            role="assistant",
+            content=resume_text,
+            section_idx=meeting.current_section_idx,
+            paragraph_idx=meeting.current_paragraph_idx,
+            audio_path=relative_audio_path(audio_path) if audio_url else None,
+        )
+        db.add(resume_msg)
+        db.commit()
+
+        return {
+            "session_id": meeting.id,
+            "resume_message": resume_text,
+            "resume_audio_url": audio_url,
+            "current_section_idx": meeting.current_section_idx,
+            "current_paragraph_idx": meeting.current_paragraph_idx,
+        }
+
+
 @router.post("/{session_id}/message")
 def send_message(
     session_id: str,

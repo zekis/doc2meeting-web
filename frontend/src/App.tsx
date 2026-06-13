@@ -88,7 +88,7 @@ export function App() {
       const doc = await api.openDocument(relPath);
       setOpenDoc(doc);
       setActiveTab("player");
-      audioPlayer.loadDocument(doc, true);
+      audioPlayer.loadDocument(doc);
       refreshRecents();
     } catch (e) {
       setError((e as Error).message);
@@ -124,7 +124,7 @@ export function App() {
       const doc = await api.openDocument(result.saved_rel_path);
       setOpenDoc(doc);
       setActiveTab("player");
-      audioPlayer.loadDocument(doc, true);
+      audioPlayer.loadDocument(doc);
     } catch (e) {
       setError((e as Error).message);
     } finally {
