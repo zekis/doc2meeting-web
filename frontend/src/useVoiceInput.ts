@@ -39,7 +39,7 @@ export interface VoiceInputControls {
 
 // Empirically-tuned for typical desk/laptop mics. The start threshold is
 // higher than the silence threshold so the hook hysteresis-resists fluttering.
-const SPEECH_START_RMS = 0.04;
+const SPEECH_START_RMS = 0.02;
 const SILENCE_RMS = 0.015;
 const SILENCE_MS = 1500;
 const FFT_SIZE = 1024;

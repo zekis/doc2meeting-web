@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/meetings", tags=["meetings"])
 
 _MEETING_MODEL = os.environ.get("OPENAI_MEETING_MODEL", "gpt-4o")
+_CLEANER_MODEL = os.environ.get("OPENAI_CLEANER_MODEL", "gpt-4o-mini")
 
 
 # --------------- Pydantic models ---------------
@@ -89,6 +90,8 @@ Style rules:
 - No markdown, bullets, or headings.
 - Do not reference being an AI.
 - Address the user naturally as if in a meeting.
+- The user's speech has been cleaned from raw voice-to-text but may still be
+  imperfect. Interpret their intent generously based on conversation context.
 """
 
 
@@ -99,6 +102,42 @@ def _build_meeting_agent() -> Agent:
         model=_MEETING_MODEL,
         output_type=MeetingResponse,
     )
+
+
+def _clean_raw_speech(raw_text: str, doc_name: str, section_title: str) -> str | None:
+    """Clean raw STT output using a fast model.
+
+    Returns the cleaned text, or None if the input appears to be noise.
+    """
+    stripped = raw_text.strip()
+    if len(stripped) < 2:
+        return None
+
+    agent = Agent(
+        name="SpeechCleaner",
+        instructions=(
+            "You clean raw speech-to-text transcriptions for a document review meeting. "
+            "The user is reviewing a document and their speech may be truncated, have "
+            "missing words, or be unclear. Return their likely intended message as a "
+            "clear, complete sentence. Preserve their original intent — do not add "
+            "information they did not express. If the input appears to be noise, filler "
+            "words only (um, uh, hmm), or unintelligible, reply with exactly: NOISE"
+        ),
+        model=_CLEANER_MODEL,
+    )
+    prompt = (
+        f'Document: "{doc_name}", Section: "{section_title}"\n'
+        f'Raw transcript: "{stripped}"'
+    )
+    try:
+        result = Runner.run_sync(agent, prompt, max_turns=1)
+        cleaned = result.final_output.strip()
+        if cleaned.upper() == "NOISE" or len(cleaned) < 2:
+            return None
+        return cleaned
+    except Exception:
+        logger.exception("Speech cleaner failed, using raw text")
+        return stripped
 
 
 def _get_document_sections(doc: Document) -> list:
@@ -353,11 +392,27 @@ def send_message(
 
         doc_name = doc.rel_path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
 
-        # Save user message
+        # Parse document for section info
+        sections = _get_document_sections(doc)
+        sec = sections[body.section_idx] if body.section_idx < len(sections) else sections[-1]
+
+        # Clean the raw speech-to-text with AI
+        cleaned_text = _clean_raw_speech(body.text, doc_name, sec.title)
+        if cleaned_text is None:
+            # Non-speech noise — tell frontend to resume narration
+            return {
+                "reply": "",
+                "tool_action": None,
+                "target_section_idx": None,
+                "target_paragraph_idx": None,
+                "audio_url": None,
+            }
+
+        # Save user message with cleaned text
         user_msg = MeetingMessage(
             session_id=session_id,
             role="user",
-            content=body.text,
+            content=cleaned_text,
             section_idx=body.section_idx,
             paragraph_idx=body.paragraph_idx,
         )
@@ -375,12 +430,11 @@ def send_message(
             .order_by(MeetingMessage.id)
         ).all()
 
-        # Parse document and run agent
-        sections = _get_document_sections(doc)
+        # Build agent prompt with cleaned speech
         prompt = _build_agent_prompt(
             doc_name, sections,
             body.section_idx, body.paragraph_idx,
-            body.text, list(history),
+            cleaned_text, list(history),
         )
 
         agent = _build_meeting_agent()

@@ -212,13 +212,15 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
       // Transcribe via Whisper
       const { text } = await api.transcribe(blob);
       if (!text.trim()) {
-        setMeetingState("listening");
+        // Empty transcript — just noise, resume narration
+        resumeNarration();
         return;
       }
 
-      // Add user message locally
+      // Add user message locally (may be removed if backend determines noise)
+      const msgId = Date.now();
       const userMsg: MeetingMessageData = {
-        id: Date.now(),
+        id: msgId,
         role: "user",
         content: text.trim(),
         section_idx: sectionIdxRef.current,
@@ -229,13 +231,21 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
       };
       setMessages(prev => [...prev, userMsg]);
 
-      // Send to meeting agent
+      // Send to meeting agent (backend cleans speech with AI first)
       const reply = await meetingApi.sendMessage(
         sessionIdRef.current!,
         text.trim(),
         sectionIdxRef.current,
         paragraphIdxRef.current,
       );
+
+      // Check if backend determined this is noise (empty reply, no action)
+      if (!reply.reply && !reply.tool_action) {
+        // Remove the user message and resume narration
+        setMessages(prev => prev.filter(m => m.id !== msgId));
+        resumeNarration();
+        return;
+      }
 
       // Add assistant message
       const assistantMsg: MeetingMessageData = {
@@ -250,6 +260,13 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
       };
       setMessages(prev => [...prev, assistantMsg]);
 
+      // Destroy paused narration audio since we have a real response now
+      if (narrationAudioRef.current) {
+        narrationAudioRef.current.onended = null;
+        narrationAudioRef.current.onerror = null;
+        narrationAudioRef.current = null;
+      }
+
       // Play response audio
       if (reply.audio_url) {
         playResponseAudio(reply.audio_url, reply);
@@ -258,13 +275,46 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
       }
     } catch (e) {
       setError((e as Error).message);
-      setMeetingState("listening");
+      resumeNarration();
     }
-  }, [playResponseAudio, handleToolAction]);
+  }, [playResponseAudio, handleToolAction, resumeNarration]);
 
-  // Stop all audio when user starts speaking — user can always interrupt
+  // Resume paused narration audio (used when detected audio is noise, not speech)
+  const resumeNarration = useCallback(() => {
+    setMeetingState("listening");
+    const audio = narrationAudioRef.current;
+    if (audio && audio.paused) {
+      setIsNarrating(true);
+      // Restore auto-advance handler with current epoch
+      const epoch = narrationEpochRef.current;
+      const secIdx = sectionIdxRef.current;
+      const paraIdx = paragraphIdxRef.current;
+      audio.onended = () => {
+        if (epoch !== narrationEpochRef.current) return;
+        narrationAudioRef.current = null;
+        playNarrationRef.current(secIdx, paraIdx + 1);
+      };
+      audio.play().catch(() => {
+        narrationAudioRef.current = null;
+        playNarrationRef.current(secIdx, paraIdx);
+      });
+    } else {
+      // No audio to resume — replay current paragraph
+      playNarrationRef.current(sectionIdxRef.current, paragraphIdxRef.current);
+    }
+  }, []);
+
+  // Pause all audio when user starts speaking — pause narration (keep ref for
+  // potential resume if it turns out to be noise), destroy response audio
   const handleSpeechStart = useCallback(() => {
-    stopNarration();
+    // Cancel in-flight narration fetches but keep playing audio ref for resume
+    narrationEpochRef.current++;
+    if (narrationAudioRef.current) {
+      narrationAudioRef.current.pause();
+      // Keep the ref so resumeNarration can unpause it
+    }
+    setIsNarrating(false);
+    // Stop agent response audio entirely (no resume for interrupted responses)
     if (responseAudioRef.current) {
       responseAudioRef.current.onended = null;
       responseAudioRef.current.onerror = null;
@@ -272,7 +322,7 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
       responseAudioRef.current = null;
     }
     setMeetingState("user_talking");
-  }, [stopNarration]);
+  }, []);
 
   // VAD hook — enabled when meeting is active (user can always interrupt)
   const voiceInput = useVoiceInput({
