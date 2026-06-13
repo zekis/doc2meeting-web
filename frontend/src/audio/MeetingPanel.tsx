@@ -203,6 +203,31 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
     });
   }, [handleToolAction]);
 
+  // Resume paused narration audio (used when detected audio is noise, not speech)
+  const resumeNarration = useCallback(() => {
+    setMeetingState("listening");
+    const audio = narrationAudioRef.current;
+    if (audio && audio.paused) {
+      setIsNarrating(true);
+      // Restore auto-advance handler with current epoch
+      const epoch = narrationEpochRef.current;
+      const secIdx = sectionIdxRef.current;
+      const paraIdx = paragraphIdxRef.current;
+      audio.onended = () => {
+        if (epoch !== narrationEpochRef.current) return;
+        narrationAudioRef.current = null;
+        playNarrationRef.current(secIdx, paraIdx + 1);
+      };
+      audio.play().catch(() => {
+        narrationAudioRef.current = null;
+        playNarrationRef.current(secIdx, paraIdx);
+      });
+    } else {
+      // No audio to resume — replay current paragraph
+      playNarrationRef.current(sectionIdxRef.current, paragraphIdxRef.current);
+    }
+  }, []);
+
   // Process captured audio from VAD
   const handleAudioCaptured = useCallback(async (blob: Blob) => {
     if (!sessionIdRef.current) return;
@@ -278,31 +303,6 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
       resumeNarration();
     }
   }, [playResponseAudio, handleToolAction, resumeNarration]);
-
-  // Resume paused narration audio (used when detected audio is noise, not speech)
-  const resumeNarration = useCallback(() => {
-    setMeetingState("listening");
-    const audio = narrationAudioRef.current;
-    if (audio && audio.paused) {
-      setIsNarrating(true);
-      // Restore auto-advance handler with current epoch
-      const epoch = narrationEpochRef.current;
-      const secIdx = sectionIdxRef.current;
-      const paraIdx = paragraphIdxRef.current;
-      audio.onended = () => {
-        if (epoch !== narrationEpochRef.current) return;
-        narrationAudioRef.current = null;
-        playNarrationRef.current(secIdx, paraIdx + 1);
-      };
-      audio.play().catch(() => {
-        narrationAudioRef.current = null;
-        playNarrationRef.current(secIdx, paraIdx);
-      });
-    } else {
-      // No audio to resume — replay current paragraph
-      playNarrationRef.current(sectionIdxRef.current, paragraphIdxRef.current);
-    }
-  }, []);
 
   // Pause all audio when user starts speaking — pause narration (keep ref for
   // potential resume if it turns out to be noise), destroy response audio
