@@ -212,6 +212,7 @@ export function App() {
       activeTab={isPlayerView ? "player" : activeTab}
       onNavigate={handleNavigate}
       isPlayerView={!!isPlayerView}
+      hidePlayer={!openDoc}
     >
       <DropZone
         ref={dropZoneRef}

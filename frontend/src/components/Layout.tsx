@@ -18,6 +18,7 @@ interface LayoutProps {
   activeTab?: NavTab;
   onNavigate?: (tab: NavTab) => void;
   isPlayerView?: boolean;
+  hidePlayer?: boolean;
 }
 
 const NAV_ITEMS: Array<{ key: NavTab; icon: string; label: string; adminOnly?: boolean }> = [
@@ -26,10 +27,14 @@ const NAV_ITEMS: Array<{ key: NavTab; icon: string; label: string; adminOnly?: b
   { key: "player", icon: mdiPlayCircleOutline, label: "Player" },
 ];
 
-export function Layout({ children, activeTab = "library", onNavigate, isPlayerView }: LayoutProps) {
+export function Layout({ children, activeTab = "library", onNavigate, isPlayerView, hidePlayer }: LayoutProps) {
   const { user, logout } = useAuth();
   const isAdmin = user?.is_admin ?? false;
-  const visibleItems = NAV_ITEMS.filter((item) => !item.adminOnly || isAdmin);
+  const visibleItems = NAV_ITEMS.filter((item) => {
+    if (item.adminOnly && !isAdmin) return false;
+    if (item.key === "player" && hidePlayer) return false;
+    return true;
+  });
 
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
