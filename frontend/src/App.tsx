@@ -261,6 +261,8 @@ export function App() {
             onDeleteDocument={handleDeleteDocument}
             uploadItems={uploadItems}
             onUpload={triggerFilePicker}
+            onToast={toast}
+            onUploadComplete={handleUploadComplete}
           />
         )}
       </DropZone>

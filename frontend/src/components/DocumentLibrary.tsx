@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import Icon from "@mdi/react";
 import {
   mdiFileDocumentOutline,
@@ -13,9 +13,11 @@ import {
   mdiGoogleDrive,
   mdiMonitor,
   mdiPlus,
+  mdiCellphone,
 } from "@mdi/js";
-import { api, type DocumentSummary } from "../api";
+import { api, getDriveStatus, connectDrive, type DocumentSummary } from "../api";
 import type { UploadItem } from "./UploadQueue";
+import { DrivePicker } from "./DrivePicker";
 
 type SortMode = "recent" | "alpha";
 
@@ -26,6 +28,8 @@ interface DocumentLibraryProps {
   onDeleteDocument?: (id: number) => void;
   uploadItems?: UploadItem[];
   onUpload?: () => void;
+  onToast?: (type: "error" | "success", text: string) => void;
+  onUploadComplete?: () => void;
 }
 
 /** Derive file extension for type-based card styling. */
@@ -59,8 +63,31 @@ function relativeTime(d: Date): string {
   return d.toLocaleDateString();
 }
 
-export function DocumentLibrary({ documents, loading, onOpenDocument, onDeleteDocument, uploadItems = [], onUpload }: DocumentLibraryProps) {
+export function DocumentLibrary({ documents, loading, onOpenDocument, onDeleteDocument, uploadItems = [], onUpload, onToast, onUploadComplete }: DocumentLibraryProps) {
   const [sort, setSort] = useState<SortMode>("recent");
+  const [fabMenuOpen, setFabMenuOpen] = useState(false);
+  const [driveConnected, setDriveConnected] = useState(false);
+  const [drivePickerOpen, setDrivePickerOpen] = useState(false);
+  const fabMenuRef = useRef<HTMLDivElement>(null);
+
+  // Check Drive connection status once
+  useEffect(() => {
+    getDriveStatus()
+      .then((s) => setDriveConnected(s.connected))
+      .catch(() => {});
+  }, []);
+
+  // Close FAB menu on outside click
+  useEffect(() => {
+    if (!fabMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (fabMenuRef.current && !fabMenuRef.current.contains(e.target as Node)) {
+        setFabMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [fabMenuOpen]);
 
   const { cloudDocs, localDocs } = useMemo(() => {
     const cloud = documents.filter((d) => d.on_drive);
@@ -204,16 +231,51 @@ export function DocumentLibrary({ documents, loading, onOpenDocument, onDeleteDo
         </div>
       )}
 
-      {/* Floating upload button */}
+      {/* Floating upload button with context menu */}
       {onUpload && (
-        <button
-          onClick={onUpload}
-          className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-accent text-accent-fg shadow-lg hover:opacity-90 active:scale-95 transition-all flex items-center justify-center z-40"
-          title="Upload document"
-        >
-          <Icon path={mdiPlus} size={1.2} />
-        </button>
+        <div className="fixed bottom-6 right-6 z-40" ref={fabMenuRef}>
+          {fabMenuOpen && (
+            <div className="absolute bottom-16 right-0 w-52 bg-surface border border-border rounded-card shadow-lg py-1 overflow-hidden">
+              <button
+                onClick={() => { setFabMenuOpen(false); onUpload(); }}
+                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-fg hover:bg-surface-elevated transition-colors"
+              >
+                <Icon path={mdiCellphone} size={0.75} className="text-fg-muted" />
+                This device
+              </button>
+              <button
+                onClick={() => {
+                  setFabMenuOpen(false);
+                  if (driveConnected) {
+                    setDrivePickerOpen(true);
+                  } else {
+                    connectDrive();
+                  }
+                }}
+                className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-fg hover:bg-surface-elevated transition-colors"
+              >
+                <Icon path={mdiGoogleDrive} size={0.75} className="text-accent" />
+                {driveConnected ? "Google Drive" : "Connect Google Drive"}
+              </button>
+            </div>
+          )}
+          <button
+            onClick={() => setFabMenuOpen((v) => !v)}
+            className={`w-14 h-14 rounded-full bg-accent text-accent-fg shadow-lg hover:opacity-90 active:scale-95 transition-all flex items-center justify-center ${fabMenuOpen ? "rotate-45" : ""}`}
+            title="Upload document"
+          >
+            <Icon path={mdiPlus} size={1.2} />
+          </button>
+        </div>
       )}
+
+      {/* Google Drive file picker modal */}
+      <DrivePicker
+        open={drivePickerOpen}
+        onClose={() => setDrivePickerOpen(false)}
+        onImported={(_result) => { onUploadComplete?.(); }}
+        onToast={onToast ?? (() => {})}
+      />
     </div>
   );
 }
