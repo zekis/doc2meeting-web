@@ -514,7 +514,7 @@ export const meetingApi = {
     const reader = res.body!.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
-    const audioChunks: Uint8Array[] = [];
+    const audioChunks: BlobPart[] = [];
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
