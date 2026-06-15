@@ -59,7 +59,7 @@ export function UploadQueue({ items, onRetry, onRemove, onDismissAll }: UploadQu
   const allDone = activeCount === 0;
 
   return (
-    <div className="fixed bottom-14 tablet:bottom-20 left-0 right-0 z-50 flex justify-center pointer-events-none">
+    <div className="fixed bottom-4 left-0 right-0 z-50 flex justify-center pointer-events-none">
       <div className="w-full max-w-lg mx-4 mb-4 pointer-events-auto bg-surface border border-border rounded-card shadow-2xl overflow-hidden">
         {/* Header */}
         <button

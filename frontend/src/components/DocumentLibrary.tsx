@@ -12,6 +12,7 @@ import {
   mdiDeleteOutline,
   mdiGoogleDrive,
   mdiMonitor,
+  mdiPlus,
 } from "@mdi/js";
 import { api, type DocumentSummary } from "../api";
 import type { UploadItem } from "./UploadQueue";
@@ -201,6 +202,17 @@ export function DocumentLibrary({ documents, loading, onOpenDocument, onDeleteDo
             ))}
           </div>
         </div>
+      )}
+
+      {/* Floating upload button */}
+      {onUpload && (
+        <button
+          onClick={onUpload}
+          className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-accent text-accent-fg shadow-lg hover:opacity-90 active:scale-95 transition-all flex items-center justify-center z-40"
+          title="Upload document"
+        >
+          <Icon path={mdiPlus} size={1.2} />
+        </button>
       )}
     </div>
   );

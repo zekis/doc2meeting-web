@@ -1,9 +1,6 @@
 import { type ReactNode, useState, useRef, useEffect } from "react";
 import Icon from "@mdi/react";
 import {
-  mdiBookOpenPageVariant,
-  mdiCloudUploadOutline,
-  mdiPlayCircleOutline,
   mdiCogOutline,
   mdiLogout,
   mdiShieldAccountOutline,
@@ -15,26 +12,12 @@ export type NavTab = "library" | "upload" | "player" | "settings" | "admin" | "a
 
 interface LayoutProps {
   children: ReactNode;
-  activeTab?: NavTab;
   onNavigate?: (tab: NavTab) => void;
-  isPlayerView?: boolean;
-  hidePlayer?: boolean;
 }
 
-const NAV_ITEMS: Array<{ key: NavTab; icon: string; label: string; adminOnly?: boolean }> = [
-  { key: "library", icon: mdiBookOpenPageVariant, label: "Library" },
-  { key: "upload", icon: mdiCloudUploadOutline, label: "Upload" },
-  { key: "player", icon: mdiPlayCircleOutline, label: "Player" },
-];
-
-export function Layout({ children, activeTab = "library", onNavigate, isPlayerView, hidePlayer }: LayoutProps) {
+export function Layout({ children, onNavigate }: LayoutProps) {
   const { user, logout } = useAuth();
   const isAdmin = user?.is_admin ?? false;
-  const visibleItems = NAV_ITEMS.filter((item) => {
-    if (item.adminOnly && !isAdmin) return false;
-    if (item.key === "player" && hidePlayer) return false;
-    return true;
-  });
 
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -67,25 +50,6 @@ export function Layout({ children, activeTab = "library", onNavigate, isPlayerVi
         <span className="text-accent font-bold text-lg tracking-tight select-none">
           Doc2Audioz
         </span>
-
-        {/* Desktop nav (>1024px) */}
-        <nav className="hidden laptop:flex items-center gap-1 ml-6">
-          {visibleItems.map((item) => (
-            <button
-              key={item.key}
-              onClick={() => onNavigate?.(item.key)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-btn text-sm font-medium transition-colors
-                ${
-                  activeTab === item.key
-                    ? "bg-accent/15 text-accent"
-                    : "text-fg-muted hover:text-fg hover:bg-surface-elevated"
-                }`}
-            >
-              <Icon path={item.icon} size={0.7} />
-              {item.label}
-            </button>
-          ))}
-        </nav>
 
         <div className="flex items-center gap-2 ml-auto">
           {user && (
@@ -144,51 +108,10 @@ export function Layout({ children, activeTab = "library", onNavigate, isPlayerVi
         </div>
       </header>
 
-      {/* ---- Tablet side rail (768-1024px) ---- */}
-      <div className="flex flex-1 min-h-0 overflow-hidden">
-        <nav className="hidden tablet:flex laptop:hidden flex-col items-center gap-1 py-3 px-1.5 bg-surface border-r border-border w-16 shrink-0">
-          {visibleItems.map((item) => (
-            <button
-              key={item.key}
-              onClick={() => onNavigate?.(item.key)}
-              className={`flex flex-col items-center gap-0.5 w-full py-2 rounded-btn text-[0.65rem] font-medium transition-colors
-                ${
-                  activeTab === item.key
-                    ? "bg-accent/15 text-accent"
-                    : "text-fg-muted hover:text-fg hover:bg-surface-elevated"
-                }`}
-              title={item.label}
-            >
-              <Icon path={item.icon} size={0.85} />
-              <span>{item.label}</span>
-            </button>
-          ))}
-        </nav>
-
-        {/* ---- Content area ---- */}
-        <main className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
-          {children}
-        </main>
-      </div>
-
-      {/* ---- Bottom nav (mobile, <768px) ---- */}
-      <nav className="flex tablet:hidden items-center justify-around bg-surface border-t border-border py-1.5 px-2 shrink-0 safe-area-bottom">
-        {visibleItems.map((item) => (
-          <button
-            key={item.key}
-            onClick={() => onNavigate?.(item.key)}
-            className={`flex flex-col items-center gap-0.5 py-1 px-3 rounded-btn text-[0.65rem] font-medium transition-colors
-              ${
-                activeTab === item.key
-                  ? "text-accent"
-                  : "text-fg-muted active:text-fg"
-              }`}
-          >
-            <Icon path={item.icon} size={0.85} />
-            <span>{item.label}</span>
-          </button>
-        ))}
-      </nav>
+      {/* ---- Content area ---- */}
+      <main className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
+        {children}
+      </main>
     </div>
   );
 }
