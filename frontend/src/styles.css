@@ -2576,3 +2576,46 @@ button.secondary:hover {
   color: var(--bad);
   padding: 0.15rem 0;
 }
+
+/* ---- Mobile: bigger meeting touch targets ---- */
+@media (max-width: 768px) {
+  .meet-now-btn {
+    padding: 0.5rem 1rem;
+    font-size: 0.9rem;
+  }
+  .meet-now-btn svg {
+    width: 1.1em !important;
+    height: 1.1em !important;
+  }
+  .meeting-panel-actions .icon-btn {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+  .meeting-panel-actions .icon-btn svg {
+    width: 1.25em !important;
+    height: 1.25em !important;
+  }
+  .meeting-end-btn {
+    padding: 0.45rem 0.75rem;
+    font-size: 0.85rem;
+  }
+  .meeting-end-btn svg {
+    width: 1.1em !important;
+    height: 1.1em !important;
+  }
+  .meeting-mic-indicator {
+    width: 2.75rem;
+    height: 2.75rem;
+    border-radius: 50%;
+    background: var(--surface-elevated);
+    justify-content: center;
+  }
+  .meeting-mic-indicator svg {
+    width: 1.3em !important;
+    height: 1.3em !important;
+  }
+  .meeting-status-row {
+    gap: 0.75rem;
+    padding: 0.25rem 0;
+  }
+}
