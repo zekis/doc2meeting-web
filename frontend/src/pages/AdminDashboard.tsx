@@ -180,6 +180,15 @@ function UsersTab() {
     }
   };
 
+  const handleTierChange = async (userId: string, tier: string) => {
+    try {
+      await adminApi.updateTier(userId, tier);
+      loadUsers();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
   const totalPages = Math.ceil(total / 25);
 
   return (
@@ -250,7 +259,16 @@ function UsersTab() {
                     <div className="text-fg-muted text-xs">{u.email}</div>
                   </td>
                   <td className="py-2.5 px-4">
-                    <TierBadge tier={u.tier} />
+                    <select
+                      value={u.tier}
+                      onChange={(e) => handleTierChange(u.id, e.target.value)}
+                      className="text-xs font-semibold px-2 py-1 rounded bg-bg border border-border text-fg cursor-pointer"
+                    >
+                      <option value="free">free</option>
+                      <option value="pro">pro</option>
+                      <option value="api">api</option>
+                      <option value="team">team</option>
+                    </select>
                   </td>
                   <td className="py-2.5 px-4">{u.doc_count}</td>
                   <td className="py-2.5 px-4">{u.review_count}</td>

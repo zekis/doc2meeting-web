@@ -214,6 +214,39 @@ async def get_user_detail(
     )
 
 
+VALID_TIERS = {"free", "pro", "api", "team"}
+
+
+class TierUpdateRequest(BaseModel):
+    tier: str
+
+
+@router.post("/users/{user_id}/tier")
+async def update_user_tier(
+    user_id: str,
+    body: TierUpdateRequest,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """Change a user's subscription tier (admin override)."""
+    _require_admin(user)
+
+    if body.tier not in VALID_TIERS:
+        raise HTTPException(400, detail=f"Invalid tier. Must be one of: {', '.join(sorted(VALID_TIERS))}")
+
+    target = session.get(User, user_id)
+    if not target:
+        raise HTTPException(404, detail="User not found")
+
+    old_tier = target.tier
+    target.tier = body.tier
+    session.add(target)
+    session.commit()
+    session.refresh(target)
+
+    return {"id": target.id, "tier": target.tier, "previous_tier": old_tier}
+
+
 class SuspendRequest(BaseModel):
     suspend: bool
 

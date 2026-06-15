@@ -728,6 +728,9 @@ export const adminApi = {
   suspendUser: async (userId: string, suspend: boolean): Promise<{ id: string; suspended: boolean }> =>
     sendJson("POST", `/api/admin/users/${userId}/suspend`, { suspend }),
 
+  updateTier: async (userId: string, tier: string): Promise<{ id: string; tier: string; previous_tier: string }> =>
+    sendJson("POST", `/api/admin/users/${userId}/tier`, { tier }),
+
   getStats: async (period: string = "month"): Promise<AdminStats> =>
     jsonOrThrow(await authFetch(`/api/admin/stats?period=${period}`)),
 
