@@ -72,6 +72,60 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
   // Whether audio was paused due to ambient noise (not speech)
   const noisePausedRef = useRef(false);
 
+  // ---- Screen Wake Lock — keeps screen on during active meeting ----
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+
+  const acquireWakeLock = useCallback(async () => {
+    if (!("wakeLock" in navigator)) return;
+    try {
+      wakeLockRef.current = await navigator.wakeLock.request("screen");
+    } catch { /* user denied or not supported */ }
+  }, []);
+
+  const releaseWakeLock = useCallback(() => {
+    wakeLockRef.current?.release().catch(() => {});
+    wakeLockRef.current = null;
+  }, []);
+
+  // Acquire/release wake lock based on meeting state
+  useEffect(() => {
+    const active = meetingState !== "idle" && meetingState !== "ended" && meetingState !== "paused";
+    if (active) {
+      acquireWakeLock();
+    } else {
+      releaseWakeLock();
+    }
+  }, [meetingState, acquireWakeLock, releaseWakeLock]);
+
+  // Re-acquire wake lock when tab becomes visible again (browser releases it on hide)
+  useEffect(() => {
+    const handler = () => {
+      if (document.visibilityState === "visible") {
+        const st = meetingStateRef.current;
+        if (st !== "idle" && st !== "ended" && st !== "paused") {
+          acquireWakeLock();
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", handler);
+    return () => document.removeEventListener("visibilitychange", handler);
+  }, [acquireWakeLock]);
+
+  // ---- MediaSession — lock-screen controls for meeting audio ----
+  const updateMeetingMediaSession = useCallback((label: string) => {
+    if (!("mediaSession" in navigator)) return;
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: label,
+      artist: "Doc2Audioz Meeting",
+      album: docName,
+    });
+  }, [docName]);
+
+  const updateMeetingMediaSessionState = useCallback((state: "playing" | "paused" | "none") => {
+    if (!("mediaSession" in navigator)) return;
+    navigator.mediaSession.playbackState = state;
+  }, []);
+
   // Track current position — meeting manages its own position
   const sectionIdxRef = useRef(0);
   const paragraphIdxRef = useRef(0);
@@ -133,7 +187,8 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
     }
     setIsNarrating(false);
     noisePausedRef.current = false;
-  }, []);
+    updateMeetingMediaSessionState("paused");
+  }, [updateMeetingMediaSessionState]);
 
   // Play narrator audio for a specific paragraph, auto-advancing when done
   const playNarrationRef = useRef<(sectionIdx: number, paragraphIdx: number) => void>(() => {});
@@ -187,6 +242,8 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
         narrationAudioRef.current = null;
         playNarrationRef.current(sectionIdx, paragraphIdx + 1);
       };
+      updateMeetingMediaSession(`Narrating — ${sec.title || `Section ${sectionIdx + 1}`}`);
+      updateMeetingMediaSessionState("playing");
       audio.play().catch(() => {
         narrationAudioRef.current = null;
         playNarrationRef.current(sectionIdx, paragraphIdx + 1);
@@ -196,7 +253,7 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
       narrationAudioRef.current = null;
       playNarrationRef.current(sectionIdx, paragraphIdx + 1);
     }
-  }, [setPosition]);
+  }, [setPosition, updateMeetingMediaSession, updateMeetingMediaSessionState]);
 
   playNarrationRef.current = playNarration;
 
@@ -246,6 +303,8 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
     const audio = new Audio(audioUrl);
     responseAudioRef.current = audio;
     setMeetingState("agent_responding");
+    updateMeetingMediaSession("Doc is responding");
+    updateMeetingMediaSessionState("playing");
 
     audio.onended = () => {
       if (meetingEpochRef.current !== epoch) return; // stale
@@ -262,7 +321,7 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
       responseAudioRef.current = null;
       handleToolAction(reply);
     });
-  }, [handleToolAction, stopAllAudio]);
+  }, [handleToolAction, stopAllAudio, updateMeetingMediaSession, updateMeetingMediaSessionState]);
 
   // Resume paused narration audio (used when detected audio is noise, not speech)
   const resumeNarration = useCallback(() => {
@@ -690,6 +749,27 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
     }
   }, [sessionId, docName]);
 
+  // MediaSession action handlers for lock-screen controls during meeting
+  useEffect(() => {
+    if (!("mediaSession" in navigator)) return;
+
+    const handlers: [MediaSessionAction, MediaSessionActionHandler][] = [
+      ["pause", () => pauseMeeting()],
+      ["play", () => unpauseMeeting()],
+      ["nexttrack", () => skipParagraph()],
+    ];
+
+    for (const [action, handler] of handlers) {
+      try { navigator.mediaSession.setActionHandler(action, handler); } catch { /* ignore */ }
+    }
+
+    return () => {
+      for (const [action] of handlers) {
+        try { navigator.mediaSession.setActionHandler(action, null); } catch { /* ignore */ }
+      }
+    };
+  }, [pauseMeeting, unpauseMeeting, skipParagraph]);
+
   // Auto-start meeting when panel opens — resume existing or start new
   useEffect(() => {
     if (meetingState === "idle") {
@@ -702,6 +782,7 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
       setNavigationInterceptor(null);
       meetingEpochRef.current++;
       stopAllAudio();
+      releaseWakeLock();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
