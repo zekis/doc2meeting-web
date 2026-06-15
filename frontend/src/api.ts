@@ -496,7 +496,7 @@ export const meetingApi = {
       paragraph_idx: paragraphIdx,
     }),
 
-  /** Stream a message — calls onText immediately when LLM finishes, onAudio when TTS is ready. */
+  /** Stream a message — calls onText immediately when LLM finishes, onAudio when TTS chunks are assembled. */
   sendMessageStream: async (
     sessionId: string,
     text: string,
@@ -514,6 +514,7 @@ export const meetingApi = {
     const reader = res.body!.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    const audioChunks: Uint8Array[] = [];
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -531,7 +532,22 @@ export const meetingApi = {
             target_paragraph_idx: event.target_paragraph_idx,
             audio_url: null,
           });
+        } else if (event.type === "audio_chunk") {
+          // Decode base64 chunk and accumulate
+          const binary = atob(event.data);
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+          audioChunks.push(bytes);
+        } else if (event.type === "audio_done") {
+          // Assemble all chunks into a blob URL for playback
+          if (audioChunks.length > 0) {
+            const blob = new Blob(audioChunks, { type: "audio/mpeg" });
+            onAudio(URL.createObjectURL(blob));
+          } else {
+            onAudio(null);
+          }
         } else if (event.type === "audio") {
+          // Legacy fallback (non-streaming endpoints)
           onAudio(event.audio_url);
         }
       }

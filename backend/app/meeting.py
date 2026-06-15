@@ -12,6 +12,7 @@ import os
 from datetime import datetime
 from typing import Optional
 
+import base64
 import json
 
 from agents import Agent, Runner
@@ -25,8 +26,10 @@ from .middleware import get_current_user
 from .models import Document, MeetingMessage, MeetingSession, User
 from .pipeline import (
     get_current_settings,
+    iter_response_tts,
     parse_markdown,
     relative_audio_path,
+    save_response_audio_bytes,
     split_paragraphs,
     synthesise_response_audio,
 )
@@ -37,7 +40,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/meetings", tags=["meetings"])
 
 _MEETING_MODEL = os.environ.get("OPENAI_MEETING_MODEL", "gpt-4o")
-_CLEANER_MODEL = os.environ.get("OPENAI_CLEANER_MODEL", "gpt-4o-mini")
 
 
 # --------------- Pydantic models ---------------
@@ -92,8 +94,8 @@ Style rules:
 - No markdown, bullets, or headings.
 - Do not reference being an AI.
 - Address the user naturally as if in a meeting.
-- The user's speech has been cleaned from raw voice-to-text but may still be
-  imperfect. Interpret their intent generously based on conversation context.
+- The user's speech comes from voice-to-text and may be imperfect. Interpret
+  their intent generously based on conversation context.
 """
 
 
@@ -106,40 +108,18 @@ def _build_meeting_agent() -> Agent:
     )
 
 
-def _clean_raw_speech(raw_text: str, doc_name: str, section_title: str) -> str | None:
-    """Clean raw STT output using a fast model.
+_NOISE_PHRASES = frozenset({
+    "um", "uh", "hmm", "hm", "ah", "oh", "mm", "mhm", "uh-huh",
+    "you", "the", "a", "i", "and", "so",
+})
 
-    Returns the cleaned text, or None if the input appears to be noise.
-    """
-    stripped = raw_text.strip()
+
+def _is_noise(text: str) -> bool:
+    """Quick noise filter — replaces the LLM-based speech cleaner."""
+    stripped = text.strip()
     if len(stripped) < 2:
-        return None
-
-    agent = Agent(
-        name="SpeechCleaner",
-        instructions=(
-            "You clean raw speech-to-text transcriptions for a document review meeting. "
-            "The user is reviewing a document and their speech may be truncated, have "
-            "missing words, or be unclear. Return their likely intended message as a "
-            "clear, complete sentence. Preserve their original intent — do not add "
-            "information they did not express. If the input appears to be noise, filler "
-            "words only (um, uh, hmm), or unintelligible, reply with exactly: NOISE"
-        ),
-        model=_CLEANER_MODEL,
-    )
-    prompt = (
-        f'Document: "{doc_name}", Section: "{section_title}"\n'
-        f'Raw transcript: "{stripped}"'
-    )
-    try:
-        result = Runner.run_sync(agent, prompt, max_turns=1)
-        cleaned = result.final_output.strip()
-        if cleaned.upper() == "NOISE" or len(cleaned) < 2:
-            return None
-        return cleaned
-    except Exception:
-        logger.exception("Speech cleaner failed, using raw text")
-        return stripped
+        return True
+    return stripped.lower().rstrip(".!?,") in _NOISE_PHRASES
 
 
 def _get_document_sections(doc: Document) -> list:
@@ -396,12 +376,10 @@ def send_message(
 
         # Parse document for section info
         sections = _get_document_sections(doc)
-        sec = sections[body.section_idx] if body.section_idx < len(sections) else sections[-1]
 
-        # Clean the raw speech-to-text with AI
-        cleaned_text = _clean_raw_speech(body.text, doc_name, sec.title)
-        if cleaned_text is None:
-            # Non-speech noise — tell frontend to resume narration
+        # Quick noise filter (replaces the old LLM-based speech cleaner)
+        user_text = body.text.strip()
+        if _is_noise(user_text):
             return {
                 "reply": "",
                 "tool_action": None,
@@ -410,11 +388,11 @@ def send_message(
                 "audio_url": None,
             }
 
-        # Save user message with cleaned text
+        # Save user message
         user_msg = MeetingMessage(
             session_id=session_id,
             role="user",
-            content=cleaned_text,
+            content=user_text,
             section_idx=body.section_idx,
             paragraph_idx=body.paragraph_idx,
         )
@@ -436,7 +414,7 @@ def send_message(
         prompt = _build_agent_prompt(
             doc_name, sections,
             body.section_idx, body.paragraph_idx,
-            cleaned_text, list(history),
+            user_text, list(history),
         )
 
         agent = _build_meeting_agent()
@@ -517,11 +495,10 @@ def send_message_stream(
         doc_id = doc.id
         doc_name = doc.rel_path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
         sections = _get_document_sections(doc)
-        sec = sections[body.section_idx] if body.section_idx < len(sections) else sections[-1]
 
-        # Clean speech
-        cleaned_text = _clean_raw_speech(body.text, doc_name, sec.title)
-        if cleaned_text is None:
+        # Quick noise filter
+        user_text = body.text.strip()
+        if _is_noise(user_text):
             noise = json.dumps({
                 "type": "text", "reply": "", "tool_action": None,
                 "target_section_idx": None, "target_paragraph_idx": None,
@@ -533,7 +510,7 @@ def send_message_stream(
 
         # Save user message
         user_msg = MeetingMessage(
-            session_id=session_id, role="user", content=cleaned_text,
+            session_id=session_id, role="user", content=user_text,
             section_idx=body.section_idx, paragraph_idx=body.paragraph_idx,
         )
         session.add(user_msg)
@@ -551,7 +528,7 @@ def send_message_stream(
         prompt = _build_agent_prompt(
             doc_name, sections,
             body.section_idx, body.paragraph_idx,
-            cleaned_text, history,
+            user_text, history,
         )
 
         # Run agent
@@ -589,24 +566,35 @@ def send_message_stream(
     def generate():
         # Yield text immediately
         yield text_event + "\n"
-        # Now generate TTS (the slow part)
-        audio_url = None
+
+        # Stream TTS chunks as base64 — the client can start decoding while
+        # the API is still generating audio, saving ~0.3s perceived latency.
+        chunks: list[bytes] = []
         try:
-            audio_path, _chars = synthesise_response_audio(
-                reply_text, doc_id, body.section_idx, body.paragraph_idx,
-            )
-            audio_rel = relative_audio_path(audio_path)
-            audio_url = f"/audio/{audio_rel}"
-            # Update the message with the audio path
-            with Session(engine) as db:
-                m = db.get(MeetingMessage, msg_id)
-                if m:
-                    m.audio_path = audio_rel
-                    db.add(m)
-                    db.commit()
+            for chunk in iter_response_tts(reply_text):
+                chunks.append(chunk)
+                yield json.dumps({
+                    "type": "audio_chunk",
+                    "data": base64.b64encode(chunk).decode(),
+                }) + "\n"
+
+            # Save complete file to disk for persistence
+            if chunks:
+                mp3_bytes = b"".join(chunks)
+                audio_path = save_response_audio_bytes(
+                    mp3_bytes, doc_id, body.section_idx, body.paragraph_idx,
+                )
+                audio_rel = relative_audio_path(audio_path)
+                with Session(engine) as db:
+                    m = db.get(MeetingMessage, msg_id)
+                    if m:
+                        m.audio_path = audio_rel
+                        db.add(m)
+                        db.commit()
         except Exception:
-            logger.exception("Failed to generate meeting response TTS")
-        yield json.dumps({"type": "audio", "audio_url": audio_url}) + "\n"
+            logger.exception("Failed to stream meeting response TTS")
+
+        yield json.dumps({"type": "audio_done"}) + "\n"
 
     return StreamingResponse(generate(), media_type="application/x-ndjson")
 

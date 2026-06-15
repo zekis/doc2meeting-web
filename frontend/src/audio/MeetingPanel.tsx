@@ -306,19 +306,26 @@ export function MeetingPanel({ docId, docName, onClose }: MeetingPanelProps) {
     updateMeetingMediaSession("Doc is responding");
     updateMeetingMediaSessionState("playing");
 
+    const cleanup = () => {
+      // Revoke blob URLs created by streaming TTS to free memory
+      if (audioUrl.startsWith("blob:")) URL.revokeObjectURL(audioUrl);
+    };
     audio.onended = () => {
       if (meetingEpochRef.current !== epoch) return; // stale
       responseAudioRef.current = null;
+      cleanup();
       handleToolAction(reply);
     };
     audio.onerror = () => {
       if (meetingEpochRef.current !== epoch) return;
       responseAudioRef.current = null;
+      cleanup();
       handleToolAction(reply);
     };
     audio.play().catch(() => {
       if (meetingEpochRef.current !== epoch) return;
       responseAudioRef.current = null;
+      cleanup();
       handleToolAction(reply);
     });
   }, [handleToolAction, stopAllAudio, updateMeetingMediaSession, updateMeetingMediaSessionState]);

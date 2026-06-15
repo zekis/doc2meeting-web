@@ -18,6 +18,7 @@ import hashlib
 import io
 import os
 import re
+from collections.abc import Generator
 from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import uuid4
@@ -809,6 +810,38 @@ def synthesise_response_audio(
         _para_path(document_id, section_idx, paragraph_idx, "response"),
     )
     return path, len(response_text)
+
+
+def iter_response_tts(response_text: str) -> Generator[bytes, None, None]:
+    """Stream raw MP3 chunks from OpenAI TTS for a meeting response.
+
+    Skips pydub re-encoding — yields bytes directly from the API, which
+    allows the caller to forward chunks to the client as they arrive.
+    """
+    if not response_text.strip():
+        return
+    s = get_current_settings()
+    params: dict = {
+        "model": s.tts_model,
+        "voice": s.narrator_voice,
+        "input": response_text,
+        "response_format": "mp3",
+    }
+    if s.responder_instructions and s.tts_model == "gpt-4o-mini-tts":
+        params["instructions"] = s.responder_instructions
+    client = _get_tts_client()
+    with client.audio.speech.with_streaming_response.create(**params) as resp:
+        yield from resp.iter_bytes(chunk_size=4096)
+
+
+def save_response_audio_bytes(
+    mp3_bytes: bytes, document_id: int, section_idx: int, paragraph_idx: int,
+) -> Path:
+    """Write raw MP3 bytes to the standard audio path and return it."""
+    target = _para_path(document_id, section_idx, paragraph_idx, "response")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(mp3_bytes)
+    return target
 
 
 def relative_audio_path(absolute: Path) -> str:
